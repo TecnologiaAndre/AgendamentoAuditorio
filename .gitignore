@@ -1,0 +1,13 @@
+# Pastas do ambiente e arquivos de sistema
+.streamlit/
+__pycache__/
+.env
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+.DS_Store
+
+# Chaves locais (importante!)
+secrets.toml
