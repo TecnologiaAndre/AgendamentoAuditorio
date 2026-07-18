@@ -99,89 +99,88 @@ with col_visualizacao:
     if not eventos:
         st.info("O auditório está totalmente livre para os próximos dias!")
     else:
-        # Define a quantidade de blocos quadrados por linha (3 se encaixa muito bem)
-        cards_por_linha = 3
-        
-        # Cria as linhas de cards
-        for i in range(0, len(eventos), cards_por_linha):
-            colunas_da_linha = st.columns(cards_por_linha)
+        for i in range(0, len(eventos), 2):
+            sub_col1, sub_col2 = st.columns(2)
             
-            for j in range(cards_por_linha):
-                indice_evento = i + j
-                if indice_evento < len(eventos):
-                    item = eventos[indice_evento]
-                    
-                    inicio = item['start'].get('dateTime', item['start'].get('date'))
-                    fim = item['end'].get('dateTime', item['end'].get('date'))
-                    if 'T' in inicio:
-                        dt_i = datetime.datetime.fromisoformat(inicio)
-                        dt_f = datetime.datetime.fromisoformat(fim)
-                        horario_f = f"{dt_i.strftime('%H:%M')} às {dt_f.strftime('%H:%M')}"
-                    else:
-                        dt_i = datetime.datetime.fromisoformat(inicio)
-                        horario_f = "Dia Inteiro"
-                    
-                    dia = dt_i.strftime('%d')
-                    mes = MESES_PT.get(dt_i.strftime('%b'), dt_i.strftime('%b')).upper()
-                    ano = dt_i.strftime('%Y')
-                    titulo = item.get('summary', 'Reservado 🔒')
-                    
-                    # Estrutura HTML em formato quadrado empilhado verticalmente
-                    html_quadrado = f"""
-                    <div style="
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: space-between;
-                        background-color: #1e222b;
-                        border-radius: 12px;
-                        padding: 12px;
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
-                        border-top: 4px solid #ff4b4b;
-                        height: 140px;
-                        box-sizing: border-box;
-                        text-align: center;
-                    ">
-                        <!-- Bloco do Calendário (Topo) -->
-                        <div style="
-                            width: 55px;
-                            background-color: #11141a;
-                            border-radius: 6px;
-                            overflow: hidden;
-                            border: 1px solid #31363f;
-                            margin-bottom: 6px;
-                        ">
-                            <div style="background-color: #ff4b4b; color: white; font-size: 10px; font-weight: bold; padding: 2px 0;">{mes}</div>
-                            <div style="font-size: 18px; font-weight: bold; color: #ffffff; padding: 1px 0; line-height: 1.1;">{dia}</div>
-                            <div style="font-size: 8px; color: #888888; padding-bottom: 2px;">{ano}</div>
-                        </div>
-                        
-                        <!-- Detalhes do Evento (Texto e Horário) -->
-                        <div style="width: 100%; flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                            <div style="
-                                font-size: 12px; 
-                                font-weight: bold; 
-                                color: #f0f2f6; 
-                                margin-bottom: 4px;
-                                display: -webkit-box;
-                                -webkit-line-clamp: 2;
-                                -webkit-box-orient: vertical;
-                                overflow: hidden;
-                                text-overflow: ellipsis;
-                                line-height: 1.2;
-                            ">
-                                {titulo}
-                            </div>
-                            <div style="font-size: 11px; color: #00ddff; font-weight: 500; margin-top: auto;">
-                                🕒 {horario_f}
-                            </div>
-                        </div>
+            # Elemento 1 (Esquerda)
+            item1 = eventos[i]
+            inicio1 = item1['start'].get('dateTime', item1['start'].get('date'))
+            fim1 = item1['end'].get('dateTime', item1['end'].get('date'))
+            if 'T' in inicio1:
+                dt_i1 = datetime.datetime.fromisoformat(inicio1)
+                dt_f1 = datetime.datetime.fromisoformat(fim1)
+                horario_f1 = f"{dt_i1.strftime('%H:%M')} às {dt_f1.strftime('%H:%M')}"
+            else:
+                dt_i1 = datetime.datetime.fromisoformat(inicio1)
+                horario_f1 = "Dia Inteiro"
+            
+            dia1 = dt_i1.strftime('%d')
+            mes1 = MESES_PT.get(dt_i1.strftime('%b'), dt_i1.strftime('%b')).upper()
+            ano1 = dt_i1.strftime('%Y')
+            titulo1 = item1.get('summary', 'Reservado 🔒')
+            
+            html_base = """
+            <div style="
+                display: flex;
+                align-items: center;
+                background-color: #1e222b;
+                border-radius: 8px;
+                padding: 8px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                box-shadow: 1px 1px 4px rgba(0,0,0,0.15);
+                border-left: 4px solid #ff4b4b;
+            ">
+                <div style="
+                    min-width: 50px;
+                    background-color: #11141a;
+                    border-radius: 6px;
+                    text-align: center;
+                    overflow: hidden;
+                    margin-right: 10px;
+                    border: 1px solid #31363f;
+                ">
+                    <div style="background-color: #ff4b4b; color: white; font-size: 9px; font-weight: bold; padding: 1px 0;">__MES__</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #ffffff; padding: 2px 0; line-height: 1;">__DIA__</div>
+                    <div style="font-size: 8px; color: #888888; padding-bottom: 2px;">__ANO__</div>
+                </div>
+                <div style="flex-grow: 1; min-width: 0;">
+                    <div style="font-size: 13px; font-weight: bold; color: #f0f2f6; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        __TITULO__
                     </div>
-                    """
-                    
-                    with colunas_da_linha[j]:
-                        components.html(html_quadrado, height=155)
+                    <div style="font-size: 11px; color: #00ddff; font-weight: 500;">
+                        🕒 __HORARIO__
+                    </div>
+                </div>
+            </div>
+            """
+            
+            html_final1 = html_base.replace("__MES__", mes1).replace("__DIA__", dia1).replace("__ANO__", ano1).replace("__TITULO__", titulo1).replace("__HORARIO__", horario_f1)
+            
+            with sub_col1:
+                components.html(html_final1, height=68)
+            
+            # Elemento 2 (Direita)
+            if i + 1 < len(eventos):
+                item2 = eventos[i+1]
+                inicio2 = item2['start'].get('dateTime', item2['start'].get('date'))
+                fim2 = item2['end'].get('dateTime', item2['end'].get('date'))
+                if 'T' in inicio2:
+                    dt_i2 = datetime.datetime.fromisoformat(inicio2)
+                    dt_f2 = datetime.datetime.fromisoformat(fim2)
+                    horario_f2 = f"{dt_i2.strftime('%H:%M')} às {dt_f2.strftime('%H:%M')}"
+                else:
+                    dt_i2 = datetime.datetime.fromisoformat(inicio2)
+                    horario_f2 = "Dia Inteiro"
+                
+                dia2 = dt_i2.strftime('%d')
+                mes2 = MESES_PT.get(dt_i2.strftime('%b'), dt_i2.strftime('%b')).upper()
+                ano2 = dt_i2.strftime('%Y')
+                titulo2 = item2.get('summary', 'Reservado 🔒')
+                
+                html_final2 = html_base.replace("__MES__", mes2).replace("__DIA__", dia2).replace("__ANO__", ano2).replace("__TITULO__", titulo2).replace("__HORARIO__", horario_f2)
+                
+                with sub_col2:
+                    components.html(html_final2, height=68)
 
 with col_formulario:
     aba_reservar, aba_cancelar = st.tabs(["➕ Solicitar Reserva", "❌ Cancelar Agendamento"])
