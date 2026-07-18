@@ -1,306 +1,145 @@
-import datetime
-import os
 import streamlit as st
-import streamlit.components.v1 as components
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
+from supabase import create_client
+from datetime import datetime, date, time, timedelta
+import calendar
 
-# Configuração da Página
-st.set_page_config(page_title="Painel do Auditório", layout="wide")
+# Configuração da página
+st.set_page_config(
+    page_title="Agendamento Auditório", 
+    page_icon="📅", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# ID da sua agenda principal compartilhada
-ID_DA_AGENDA = 'tecnologia.andre@gertaxi.com.br'
+# Inicialização do Supabase
+@st.cache_resource
+def init_connection():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-ARQUIVO_CHAVE = 'service_account.json'
+supabase = init_connection()
 
-# Dicionário simples para traduzir meses abreviados
-MESES_PT = {
-    "Jan": "JAN", "Feb": "FEV", "Mar": "MAR", "Apr": "ABR", 
-    "May": "MAI", "Jun": "JUN", "Jul": "JUL", "Aug": "AGO", 
-    "Sep": "SET", "Oct": "OUT", "Nov": "NOV", "Dec": "DEZ"
-}
+# Inicialização de variáveis de sessão
+if "user" not in st.session_state: st.session_state.user = None
+if "data_reserva" not in st.session_state: st.session_state.data_reserva = date.today()
+if "cal_mes" not in st.session_state: st.session_state.cal_mes = date.today().month
+if "cal_ano" not in st.session_state: st.session_state.cal_ano = date.today().year
+if "input_titulo" not in st.session_state: st.session_state.input_titulo = ""
 
-def conectar_com_robo():
-    """Autentica na API do Google usando a Conta de Serviço (Robô)"""
-    if not os.path.exists(ARQUIVO_CHAVE):
-        st.error(f"Erro: O arquivo '{ARQUIVO_CHAVE}' não foi encontrado na pasta do projeto.")
-        st.stop()
-        
-    credenciais = service_account.Credentials.from_service_account_file(
-        ARQUIVO_CHAVE, scopes=SCOPES
-    )
-    return build('calendar', 'v3', credentials=credenciais)
+# Funções de Auth e Lógica
+def login(email, password):
+    try:
+        user = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        st.session_state.user = user.user
+        st.rerun()
+    except Exception as e: st.error(f"Erro no login: {e}")
 
-def buscar_compromissos(service, max_resultados=50):
-    """Busca os eventos agendados na agenda escolhida (incluindo o dia de hoje)"""
-    hoje_inicio = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + '-03:00'
-    
-    events_result = service.events().list(
-        calendarId=ID_DA_AGENDA, 
-        timeMin=hoje_inicio,
-        maxResults=max_resultados, 
-        singleEvents=True,
-        orderBy='startTime'
-    ).execute()
-    return events_result.get('items', [])
+def signup(email, password, nome, sobrenome):
+    try:
+        supabase.auth.sign_up({"email": email, "password": password, "options": {"data": {"nome": nome, "sobrenome": sobrenome}}})
+        st.success("Cadastro realizado! Vá em 'Entrar'.")
+    except Exception as e: st.error(f"Erro: {e}")
 
-def criar_evento(service, resumo, email, nome, motivo, data, hora_inicio, hora_fim):
-    """Cria um novo agendamento na agenda guardando metadados na descrição"""
-    inicio_iso = f"{data}T{hora_inicio}:00"
-    fim_iso = f"{data}T{hora_fim}:00"
-    
-    # Guardamos uma tag estruturada [EMAIL: xxx] na descrição para ler depois
-    descricao_final = (
-        f"Responsável: {nome}\n"
-        f"Motivo: {motivo}\n"
-        f"[EMAIL:{email.strip().lower()}]\n"
-        f"Agendado via Painel Streamlit."
-    )
-    
-    detalhes_evento = {
-        'summary': resumo,
-        'description': descricao_final,
-        'start': {'dateTime': inicio_iso, 'timeZone': 'America/Sao_Paulo'},
-        'end': {'dateTime': fim_iso, 'timeZone': 'America/Sao_Paulo'},
-    }
-    
-    evento_criado = service.events().insert(calendarId=ID_DA_AGENDA, body=detalhes_evento).execute()
-    return evento_criado
+def atualizar_senha(nova_senha):
+    try:
+        supabase.auth.update_user({"password": nova_senha})
+        st.success("Senha atualizada!")
+    except Exception as e: st.error(f"Erro: {e}")
 
-def deletar_evento(service, event_id):
-    """Remove um evento da agenda usando o ID único"""
-    service.events().delete(calendarId=ID_DA_AGENDA, eventId=event_id).execute()
+def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
+    query = supabase.table("agendamentos").select("*").lt("data_inicio", dt_fim).gt("data_fim", dt_inicio)
+    if ignore_id: query = query.neq("id", ignore_id)
+    return query.execute().data
 
-# --- Inicialização da API ---
-try:
-    service_google = conectar_com_robo()
-except Exception as e:
-    st.error(f"Erro crítico de autenticação com o robô: {e}")
-    st.stop()
-
-# Busca os eventos uma única vez no início
-try:
-    eventos = buscar_compromissos(service_google, max_resultados=50)
-except Exception as e:
-    st.error(f"Erro ao ler os dados da agenda: {e}")
-    eventos = []
-
-# --- Interface Visual do Painel Público ---
-st.title("🏢 Painel de Disponibilidade do Auditório")
-st.markdown("Consulte os horários ocupados e gerencie seus agendamentos abaixo de forma simplificada.")
-st.markdown("---")
-
-col_visualizacao, col_formulario = st.columns([5, 4], gap="large")
-
-with col_visualizacao:
-    st.subheader("🗓️ Próximos Horários Reservados")
-    
-    if not eventos:
-        st.info("O auditório está totalmente livre para os próximos dias!")
+def selecionar_data(nova_data):
+    if nova_data < date.today(): st.toast("Não é possível agendar no passado!", icon="❌")
     else:
-        for i in range(0, len(eventos), 2):
-            sub_col1, sub_col2 = st.columns(2)
-            
-            # Elemento 1 (Esquerda)
-            item1 = eventos[i]
-            inicio1 = item1['start'].get('dateTime', item1['start'].get('date'))
-            fim1 = item1['end'].get('dateTime', item1['end'].get('date'))
-            if 'T' in inicio1:
-                dt_i1 = datetime.datetime.fromisoformat(inicio1)
-                dt_f1 = datetime.datetime.fromisoformat(fim1)
-                horario_f1 = f"{dt_i1.strftime('%H:%M')} às {dt_f1.strftime('%H:%M')}"
-            else:
-                dt_i1 = datetime.datetime.fromisoformat(inicio1)
-                horario_f1 = "Dia Inteiro"
-            
-            dia1 = dt_i1.strftime('%d')
-            mes1 = MESES_PT.get(dt_i1.strftime('%b'), dt_i1.strftime('%b')).upper()
-            ano1 = dt_i1.strftime('%Y')
-            titulo1 = item1.get('summary', 'Reservado 🔒')
-            
-            html_base = """
-            <div style="
-                display: flex;
-                align-items: center;
-                background-color: #1e222b;
-                border-radius: 8px;
-                padding: 8px;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                box-shadow: 1px 1px 4px rgba(0,0,0,0.15);
-                border-left: 4px solid #ff4b4b;
-            ">
-                <div style="
-                    min-width: 50px;
-                    background-color: #11141a;
-                    border-radius: 6px;
-                    text-align: center;
-                    overflow: hidden;
-                    margin-right: 10px;
-                    border: 1px solid #31363f;
-                ">
-                    <div style="background-color: #ff4b4b; color: white; font-size: 9px; font-weight: bold; padding: 1px 0;">__MES__</div>
-                    <div style="font-size: 18px; font-weight: bold; color: #ffffff; padding: 2px 0; line-height: 1;">__DIA__</div>
-                    <div style="font-size: 8px; color: #888888; padding-bottom: 2px;">__ANO__</div>
-                </div>
-                <div style="flex-grow: 1; min-width: 0;">
-                    <div style="font-size: 13px; font-weight: bold; color: #f0f2f6; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        __TITULO__
-                    </div>
-                    <div style="font-size: 11px; color: #00ddff; font-weight: 500;">
-                        🕒 __HORARIO__
-                    </div>
-                </div>
-            </div>
-            """
-            
-            html_final1 = html_base.replace("__MES__", mes1).replace("__DIA__", dia1).replace("__ANO__", ano1).replace("__TITULO__", titulo1).replace("__HORARIO__", horario_f1)
-            
-            with sub_col1:
-                components.html(html_final1, height=68)
-            
-            # Elemento 2 (Direita)
-            if i + 1 < len(eventos):
-                item2 = eventos[i+1]
-                inicio2 = item2['start'].get('dateTime', item2['start'].get('date'))
-                fim2 = item2['end'].get('dateTime', item2['end'].get('date'))
-                if 'T' in inicio2:
-                    dt_i2 = datetime.datetime.fromisoformat(inicio2)
-                    dt_f2 = datetime.datetime.fromisoformat(fim2)
-                    horario_f2 = f"{dt_i2.strftime('%H:%M')} às {dt_f2.strftime('%H:%M')}"
-                else:
-                    dt_i2 = datetime.datetime.fromisoformat(inicio2)
-                    horario_f2 = "Dia Inteiro"
-                
-                dia2 = dt_i2.strftime('%d')
-                mes2 = MESES_PT.get(dt_i2.strftime('%b'), dt_i2.strftime('%b')).upper()
-                ano2 = dt_i2.strftime('%Y')
-                titulo2 = item2.get('summary', 'Reservado 🔒')
-                
-                html_final2 = html_base.replace("__MES__", mes2).replace("__DIA__", dia2).replace("__ANO__", ano2).replace("__TITULO__", titulo2).replace("__HORARIO__", horario_f2)
-                
-                with sub_col2:
-                    components.html(html_final2, height=68)
+        st.session_state.data_reserva = nova_data
+        st.session_state.cal_mes = nova_data.month
+        st.session_state.cal_ano = nova_data.year
 
-with col_formulario:
-    aba_reservar, aba_cancelar = st.tabs(["➕ Solicitar Reserva", "❌ Cancelar Agendamento"])
+def sync_calendario():
+    st.session_state.cal_mes = st.session_state.data_reserva.month
+    st.session_state.cal_ano = st.session_state.data_reserva.year
+
+def renderizar_calendario_interativo(ano, mes, todos_eventos):
+    eventos_por_dia = {}
+    for ev in todos_eventos:
+        dt_ini = datetime.fromisoformat(ev["data_inicio"])
+        if dt_ini.year == ano and dt_ini.month == mes:
+            dia = dt_ini.day
+            if dia not in eventos_por_dia: eventos_por_dia[dia] = []
+            eventos_por_dia[dia].append(f"• {ev['titulo']}")
+
+    cols_header = st.columns(7)
+    for i, d in enumerate(["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]):
+        cols_header[i].markdown(f"<div style='text-align: center; font-weight: bold;'>{d}</div>", unsafe_allow_html=True)
     
-    # --- ABA 1: SOLICITAR RESERVA ---
-    with aba_reservar:
-        with st.form("form_reserva", clear_on_submit=True):
-            nome_solicitante = st.text_input("Seu Nome / Setor responsável *", placeholder="Ex: João Silva (Financeiro)")
-            email_solicitante = st.text_input("Seu E-mail Corporativo *", placeholder="Ex: joao.silva@gertaxi.com.br")
-            motivo_reserva = st.text_input("Motivo da Reunião / Evento *", placeholder="Ex: Alinhamento de Metas")
-            
-            data_reserva = st.date_input("Data pretendida", min_value=datetime.date.today())
-            
-            col_h1, col_h2 = st.columns(2)
-            hora_i = col_h1.time_input("Horário de Início", datetime.time(9, 0))
-            hora_f = col_h2.time_input("Horário de Término", datetime.time(10, 0))
-            
-            botao_enviar = st.form_submit_button("Confirmar Agendamento", type="primary")
-            
-            if botao_enviar:
-                if not nome_solicitante or not motivo_reserva or not email_solicitante:
-                    st.warning("Por favor, preencha todos os campos obrigatórios (*).")
-                elif "@" not in email_solicitante or "." not in email_solicitante:
-                    st.error("Por favor, insira um endereço de e-mail válido.")
-                elif hora_i >= hora_f:
-                    st.error("O horário de término precisa ser maior que o horário de início.")
-                else:
-                    with st.spinner("Registrando sua reserva no Google Agenda..."):
-                        try:
-                            resumo_final = f"{motivo_reserva} ({nome_solicitante})"
-                            
-                            criar_evento(
-                                service=service_google,
-                                resumo=resumo_final,
-                                email=email_solicitante,
-                                nome=nome_solicitante,
-                                motivo=motivo_reserva,
-                                data=data_reserva.isoformat(),
-                                hora_inicio=hora_i.strftime('%H:%M'),
-                                hora_fim=hora_f.strftime('%H:%M')
-                            )
-                            st.success("🎉 Reserva realizada com sucesso!")
-                            st.rerun()
-                        except Exception as err:
-                            st.error(f"Não foi possível salvar o agendamento: {err}")
+    cal = calendar.monthcalendar(ano, mes)
+    for semana in cal:
+        cols = st.columns(7)
+        for i, dia in enumerate(semana):
+            if dia != 0:
+                dia_data = date(ano, mes, dia)
+                emoji = "🔴" if dia in eventos_por_dia else "🟢"
+                btn_type = "primary" if dia_data == st.session_state.data_reserva else "secondary"
+                cols[i].button(f"{emoji} {dia:02d}", key=f"btn_{ano}_{mes}_{dia}", type=btn_type, use_container_width=True, on_click=selecionar_data, args=(dia_data,))
 
-    # --- ABA 2: CANCELAR RESERVA ---
-    with aba_cancelar:
-        st.markdown("Selecione o agendamento e confirme seu e-mail para removê-lo.")
-        
-        if not eventos:
-            st.info("Não há nenhum agendamento registrado para ser cancelado.")
-        else:
-            opcoes_cancelamento = []
-            mapeamento_ids = {}
-            mapeamento_emails = {}
-            
-            for item in eventos:
-                ev_id = item['id']
-                ev_titulo = item.get('summary', 'Sem título')
-                ev_desc = item.get('description', '')
-                inicio_raw = item['start'].get('dateTime', item['start'].get('date'))
-                
-                if 'T' in inicio_raw:
-                    dt_formatada = datetime.datetime.fromisoformat(inicio_raw).strftime('%d/%m/%Y às %H:%M')
-                else:
-                    dt_formatada = datetime.datetime.fromisoformat(inicio_raw).strftime('%d/%m/%Y (Dia Todo)')
-                
-                texto_exibicao = f"{dt_formatada} - {ev_titulo}"
-                opcoes_cancelamento.append(texto_exibicao)
-                mapeamento_ids[texto_exibicao] = ev_id
-                
-                email_vinculado = ""
-                if "[EMAIL:" in ev_desc and "]" in ev_desc:
-                    try:
-                        email_vinculado = ev_desc.split("[EMAIL:")[1].split("]")[0].strip().lower()
-                    except IndexError:
-                        email_vinculado = ""
-                
-                mapeamento_emails[texto_exibicao] = email_vinculado
-            
-            with st.form("form_cancelamento", clear_on_submit=True):
-                evento_selecionado = st.selectbox("Escolha o agendamento *", options=opcoes_cancelamento)
-                validacao_email = st.text_input("Digite o E-mail do responsável *", placeholder="Ex: seu.email@gertaxi.com.br")
-                
-                botao_deletar = st.form_submit_button("Excluir Agendamento Permanentemente", type="secondary")
-                
-                if botao_deletar:
-                    if not validacao_email:
-                        st.warning("Por favor, informe o e-mail para validar a exclusão.")
-                    else:
-                        id_para_deletar = mapeamento_ids[evento_selecionado]
-                        email_esperado = mapeamento_emails[evento_selecionado]
-                        email_digitado = validacao_email.strip().lower()
-                        
-                        if not email_esperado:
-                            st.error("Este agendamento foi criado no modelo antigo sem e-mail ou diretamente pelo Google Agenda. Exclusão permitida apenas pelo administrador.")
-                        elif email_digitado == email_esperado:
-                            with st.spinner("Removendo agendamento do Google Agenda..."):
-                                try:
-                                    deletar_evento(service_google, id_para_deletar)
-                                    st.success("❌ Agendamento cancelado com sucesso!")
-                                    st.rerun()
-                                except Exception as err:
-                                    st.error(f"Erro ao tentar remover o evento: {err}")
-                        else:
-                            st.error("Validação recusada! O e-mail digitado não coincide com o responsável por este agendamento.")
+# ==========================================
+# INTERFACE
+# ==========================================
+if not st.session_state.user:
+    st.title("🏢 Portal do Auditório")
+    tab1, tab2 = st.tabs(["🔑 Entrar", "📝 Cadastrar"])
+    with tab1:
+        email = st.text_input("E-mail", key="l_email")
+        password = st.text_input("Senha", type="password", key="l_pass")
+        if st.button("Entrar"): login(email, password)
+    with tab2:
+        n = st.text_input("Nome", key="c_nome")
+        s = st.text_input("Sobrenome", key="c_sobre")
+        e = st.text_input("E-mail", key="c_email")
+        p = st.text_input("Senha", type="password", key="c_pass")
+        if st.button("Cadastrar"): signup(e, p, n, s)
+else:
+    # SIDEBAR
+    meta = st.session_state.user.user_metadata or {}
+    nome_exib = f"{meta.get('nome', '')} {meta.get('sobrenome', '')}"
+    st.sidebar.markdown(f"### 👤 {nome_exib_exib if nome_exib != ' ' else st.session_state.user.email}")
+    if st.sidebar.button("🚪 Sair"): 
+        supabase.auth.sign_out()
+        st.session_state.user = None
+        st.rerun()
+    
+    st.sidebar.divider()
+    st.sidebar.subheader("ℹ️ Informações")
+    st.sidebar.info("**Auditório Principal**\n📍 Térreo\n👥 Capacidade: 50 pessoas")
+    st.sidebar.divider()
+    st.sidebar.markdown("""<div style="font-size: 10px; color: #666; text-align: center;">© 2026 GERTAXI. All Rights Reserved.<br>Desenvolvido por ANDRÉ GUIMARÃES</div>""", unsafe_allow_html=True)
 
-# --- NOTA DE RODAPÉ (FOOTER) ---
-st.markdown("---")
-html_rodape = """
-<div style="
-    text-align: center; 
-    padding: 10px 0; 
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-    color: #888888; 
-    font-size: 12px;
-    letter-spacing: 0.5px;
-">
-    © 2026 GERTAXI. All Rights Reserved. | Desenvolvido por <strong style="color: #ff4b4b;">ANDRÉ GUIMARÃES</strong>
-</div>
-"""
-st.markdown(html_rodape, unsafe_allow_html=True)
+    # CORPO
+    st.title("📅 Painel de Reservas")
+    res = supabase.table("agendamentos").select("*").order("data_inicio").execute()
+    todos_eventos = res.data or []
+    
+    st.subheader("📋 Eventos Agendados")
+    with st.container(height=300, border=True):
+        for ev in todos_eventos:
+            st.write(f"📌 {ev['titulo']} - {datetime.fromisoformat(ev['data_inicio']).strftime('%d/%m/%Y %H:%M')}")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("➕ Nova Reserva")
+        titulo = st.text_input("Título", key="input_titulo")
+        data_res = st.date_input("Data", key="data_reserva", on_change=sync_calendario)
+        c1, c2 = st.columns(2)
+        hi = c1.time_input("Início", value=time(9,0))
+        hf = c2.time_input("Término", value=time(10,0))
+        if st.button("Reservar"):
+            # Lógica de inserção...
+            st.success("Reservado!")
+    
+    with col2:
+        st.subheader("📆 Calendário")
+        renderizar_calendario_interativo(st.session_state.cal_ano, st.session_state.cal_mes, todos_eventos)
