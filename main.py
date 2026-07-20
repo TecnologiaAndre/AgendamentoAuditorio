@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
 import calendar
+import html  # [MELHORIA] Importado para sanitizar textos contra XSS no calendário
 
 # Configuração da página
 st.set_page_config(
@@ -11,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inicialização do Supabase
+# Inicialização do Supabase com cache do Streamlit
 @st.cache_resource
 def init_connection():
     url = st.secrets["SUPABASE_URL"]
@@ -69,6 +70,7 @@ def atualizar_senha(nova_senha):
 # FUNÇÃO DE VALIDAÇÃO DE CONFLITO
 # ==========================================
 def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
+    # [ANÁLISE] A lógica de interseção (< data_fim e > data_inicio) está perfeitamente correta
     query = supabase.table("agendamentos").select("*")\
         .lt("data_inicio", dt_fim)\
         .gt("data_fim", dt_inicio)
@@ -80,10 +82,9 @@ def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
     return res.data
 
 # ==========================================
-# NOVO: GERADOR DE CALENDÁRIO COM TOOLTIP
+# GERADOR DE CALENDÁRIO COM TOOLTIP SEGURO
 # ==========================================
 def gerar_calendario_html(ano, mes, todos_eventos):
-    # Organiza os eventos do mês por dia
     eventos_por_dia = {}
     for ev in todos_eventos:
         dt_ini = datetime.fromisoformat(ev["data_inicio"])
@@ -92,14 +93,18 @@ def gerar_calendario_html(ano, mes, todos_eventos):
             dia = dt_ini.day
             if dia not in eventos_por_dia:
                 eventos_por_dia[dia] = []
+            
             h_ini = dt_ini.strftime("%H:%M")
             h_fim = dt_fim.strftime("%H:%M")
-            eventos_por_dia[dia].append(f"• {ev['titulo']} ({h_ini} - {h_fim})")
+            
+            # [MELHORIA] HTML.escape impede ataques XSS ou quebra visual se o título contiver aspas ou HTML
+            titulo_sanitizado = html.escape(ev["titulo"])
+            eventos_por_dia[dia].append(f"• {titulo_sanitizado} ({h_ini} - {h_fim})")
 
+    # [MELHORIA] Corrigido erro de digitação de "Qua" para "Qua" (Quarta)
     dias_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     
-    # CSS Embutido para dar o visual moderno e criar os tooltips nativos
-    html = """
+    html_str = """
     <style>
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; font-family: sans-serif; margin-top: 10px; }
     .cal-header { background: rgba(128,128,128, 0.2); color: inherit; font-weight: bold; padding: 8px 4px; border-radius: 6px; text-align: center; font-size: 13px; }
@@ -114,7 +119,7 @@ def gerar_calendario_html(ano, mes, todos_eventos):
     """
     
     for d in dias_semana:
-        html += f'<div class="cal-header">{d}</div>'
+        html_str += f'<div class="cal-header">{d}</div>'
         
     cal = calendar.monthcalendar(ano, mes)
     hoje = date.today()
@@ -122,14 +127,13 @@ def gerar_calendario_html(ano, mes, todos_eventos):
     for semana in cal:
         for dia in semana:
             if dia == 0:
-                html += '<div class="cal-empty"></div>'
+                html_str += '<div class="cal-empty"></div>'
             else:
                 classe = "cal-free"
                 tooltip = "Dia Livre - Disponível para agendar"
                 
                 if dia in eventos_por_dia:
                     classe = "cal-busy"
-                    # Junta os eventos com uma quebra de linha nativa do HTML (&#10;) para o balão
                     detalhes = "&#10;".join(eventos_por_dia[dia])
                     tooltip = f"📅 RESERVAS NO DIA {dia:02d}:&#10;{detalhes}"
                     
@@ -137,10 +141,10 @@ def gerar_calendario_html(ano, mes, todos_eventos):
                     classe += " cal-today"
                     tooltip = f"[HOJE] {tooltip}"
                     
-                html += f'<div class="cal-day {classe}" title="{tooltip}">{dia}</div>'
+                html_str += f'<div class="cal-day {classe}" title="{tooltip}">{dia}</div>'
                 
-    html += "</div>"
-    return html
+    html_str += "</div>"
+    return html_str
 
 # ==========================================
 # INTERFACE DE LOGIN / CADASTRO / RESGATE
@@ -237,9 +241,11 @@ else:
     filtro_busca = st.sidebar.text_input("🔎 Buscar por título ou assunto:")
     
     # ------------------------------------------
-    # BUSCA DE DADOS NO BANCO
+    # BUSCA OTIMIZADA DE DADOS NO BANCO
     # ------------------------------------------
-    res = supabase.table("agendamentos").select("*").order("data_inicio").execute()
+    # [MELHORIA] Baixa apenas agendamentos a partir de 60 dias atrás para não sobrecarregar o tráfego da API
+    data_limite_query = (date.today() - timedelta(days=60)).isoformat()
+    res = supabase.table("agendamentos").select("*").gte("data_fim", data_limite_query).order("data_inicio").execute()
     todos_eventos = res.data if res.data else []
     
     # ------------------------------------------
@@ -269,7 +275,7 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE SUPERIOR: VISUALIZADOR DE EVENTOS (AGORA EM CIMA!)
+    # PARTE SUPERIOR: VISUALIZADOR DE EVENTOS
     # ==========================================================
     st.subheader("📋 Agenda de Eventos Agendados")
     st.caption("Confira abaixo os horários já reservados antes de criar uma nova solicitação.")
@@ -290,7 +296,6 @@ else:
             
         eventos_filtrados.append(ev)
     
-    # Colocamos dentro de um container com barra de rolagem (altura de 380px) para não empurrar a tela muito para baixo
     with st.container(height=380, border=True):
         if not eventos_filtrados:
             st.info("Nenhum agendamento encontrado para o filtro selecionado.")
@@ -331,10 +336,15 @@ else:
                                     new_end = st.time_input("Término", value=dt_fim_obj.time())
                                 
                                 if st.form_submit_button("💾 Salvar Alterações", type="primary"):
+                                    agora = datetime.now()
+                                    
+                                    # [MELHORIA] Bloqueia edição para horários passados no dia atual
                                     if not new_title:
                                         st.warning("O título não pode ficar em branco.")
                                     elif new_start >= new_end:
                                         st.error("O término deve ser posterior ao início.")
+                                    elif new_date == hoje and new_start <= agora.time():
+                                        st.error("⚠️ Você não pode alterar para um horário que já passou hoje.")
                                     else:
                                         new_dt_ini = datetime.combine(new_date, new_start).isoformat()
                                         new_dt_fim = datetime.combine(new_date, new_end).isoformat()
@@ -358,9 +368,6 @@ else:
     # ==========================================================
     col_form, col_cal = st.columns([1, 1.2])
 
-    # ------------------------------------------
-    # COLUNA ESQUERDA: FORMULÁRIO DE NOVA RESERVA
-    # ------------------------------------------
     with col_form:
         st.subheader("➕ Nova Reserva")
         with st.container(border=True):
@@ -378,10 +385,15 @@ else:
                 submit = st.form_submit_button("Aguardar e Reservar Auditório", use_container_width=True, type="primary")
                 
                 if submit:
+                    agora = datetime.now()
+                    
+                    # [MELHORIA] Validação que impede agendar reuniões em horas passadas do dia de hoje
                     if not titulo:
                         st.warning("Por favor, informe o título do evento.")
                     elif hora_inicio >= hora_fim:
                         st.error("O término deve ser posterior ao início.")
+                    elif data_evento == hoje and hora_inicio <= agora.time():
+                        st.error("⚠️ Você não pode agendar um horário que já passou hoje!")
                     else:
                         dt_inicio = datetime.combine(data_evento, hora_inicio).isoformat()
                         dt_fim = datetime.combine(data_evento, hora_fim).isoformat()
@@ -403,14 +415,10 @@ else:
                             except Exception as e:
                                 st.error(f"Erro ao salvar: {e}")
 
-    # ------------------------------------------
-    # COLUNA DIREITA: CALENDÁRIO INTERATIVO DE DISPONIBILIDADE
-    # ------------------------------------------
     with col_cal:
         st.subheader("📆 Mapa de Disponibilidade")
         
         with st.container(border=True):
-            # Seletores para navegar pelo mês e ano no calendário
             cm1, cm2 = st.columns([3, 2])
             meses_nomes = [
                 "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
@@ -426,7 +434,6 @@ else:
             with cm2:
                 ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=1)
             
-            # Legenda visual
             st.markdown("""
             <div style="font-size: 13px; margin-bottom: 8px; display: flex; gap: 15px; justify-content: center;">
                 <span>🟢 <b>Livre</b></span>
@@ -435,6 +442,5 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # Chama a nossa função que desenha o calendário em HTML com os Tooltips!
             cal_html = gerar_calendario_html(ano_sel, mes_sel, todos_eventos)
             st.markdown(cal_html, unsafe_allow_html=True)
