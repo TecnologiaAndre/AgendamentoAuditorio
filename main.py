@@ -32,7 +32,7 @@ hoje = date.today()
 if "data_reserva" not in st.session_state:
     st.session_state["data_reserva"] = hoje
 
-# [NOVO] Dicionário no session_state para controlar qual reserva está com a edição aberta
+# Dicionário no session_state para controlar qual reserva está com a edição aberta
 if "editando_reserva_id" not in st.session_state:
     st.session_state["editando_reserva_id"] = None
 
@@ -40,7 +40,7 @@ if "editando_reserva_id" not in st.session_state:
 def selecionar_data_callback(nova_data):
     st.session_state["data_reserva"] = nova_data
 
-# [NOVO] Callback para alternar a abertura/fechamento do painel de edição de um card
+# Callback para alternar a abertura/fechamento do painel de edição de um card
 def alternar_edicao_callback(reserva_id):
     if st.session_state["editando_reserva_id"] == reserva_id:
         st.session_state["editando_reserva_id"] = None
@@ -304,7 +304,7 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE SUPERIOR AGORA: FORMULÁRIO (ESQUERDA) E CALENDÁRIO (DIREITA)
+    # PARTE SUPERIOR: FORMULÁRIO (ESQUERDA) E CALENDÁRIO (DIREITA)
     # ==========================================================
     col_form, col_cal = st.columns([1, 1.2])
 
@@ -399,7 +399,7 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE INFERIOR AGORA: VISUALIZADOR DE EVENTOS (COM BOTÕES ALINHADOS)
+    # PARTE INFERIOR: VISUALIZADOR DE EVENTOS (COM CONFIRMAÇÃO DE CANCELAMENTO)
     # ==========================================================
     st.subheader("📋 Agenda de Eventos Agendados")
     st.caption("Confira abaixo os horários já reservados ou edite suas próprias reservas ativas.")
@@ -436,7 +436,6 @@ else:
                 card_style = "📆 **[Minha Reserva]** " if is_meu_evento else "📌 "
                 
                 with st.container(border=True):
-                    # [NOVO] Colunas ajustadas de [3, 2, 1] para [3, 2, 2] para caberem os dois botões
                     c1, c2, c3 = st.columns([3, 2, 2])
                     
                     with c1:
@@ -445,7 +444,6 @@ else:
                         st.markdown(f"🕒 `{data_str}` | **{hora_ini_str} às {hora_fim_str}**")
                     with c3:
                         if is_meu_evento:
-                            # Subcolunas para colocar os botões Editar e Cancelar perfeitamente lado a lado
                             b_edit, b_del = st.columns(2)
                             
                             with b_edit:
@@ -460,11 +458,20 @@ else:
                                 )
                                 
                             with b_del:
-                                if st.button("❌ Cancelar", key=f"del_{ev['id']}", use_container_width=True):
-                                    supabase.table("agendamentos").delete().eq("id", ev["id"]).execute()
-                                    st.rerun()
+                                # [NOVO] Popover nativo para evitar exclusões acidentais!
+                                with st.popover("❌ Cancelar", use_container_width=True):
+                                    st.markdown("⚠️ **Confirmar exclusão?**")
+                                    st.caption("Essa ação não poderá ser desfeita.")
+                                    
+                                    pc1, pc2 = st.columns(2)
+                                    with pc1:
+                                        if st.button("Sim, Excluir", key=f"conf_del_{ev['id']}", type="primary", use_container_width=True):
+                                            supabase.table("agendamentos").delete().eq("id", ev["id"]).execute()
+                                            st.rerun()
+                                    with pc2:
+                                        if st.button("Voltar", key=f"canc_del_{ev['id']}", use_container_width=True):
+                                            st.rerun()
                     
-                    # [NOVO] Em vez de expander, abrimos o container de edição se o usuário tiver clicado em "✏️ Editar"
                     if is_meu_evento and st.session_state["editando_reserva_id"] == ev["id"]:
                         with st.container(border=True):
                             st.markdown("#### ✏️ Alterar dados da minha reserva")
