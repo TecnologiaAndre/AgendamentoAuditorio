@@ -21,9 +21,28 @@ def init_connection():
 
 supabase = init_connection()
 
-# Gerenciamento de sessão
+# ==========================================
+# GESTÃO DE SESSÃO E PARÂMETROS DE URL (CLIQUE DO CALENDÁRIO)
+# ==========================================
 if "user" not in st.session_state:
     st.session_state.user = None
+
+hoje = date.today()
+
+# [NOVO] Captura o dia clicado no calendário através da URL (?data_selecionada=YYYY-MM-DD)
+params = st.query_params
+if "data_selecionada" in params:
+    try:
+        data_clicada = datetime.strptime(params["data_selecionada"], "%Y-%m-%d").date()
+        # Garante que o usuário não tentou passar por URL uma data no passado
+        if data_clicada >= hoje:
+            st.session_state["data_reserva"] = data_clicada
+    except ValueError:
+        pass
+
+# Define a data padrão para o formulário no session_state caso ainda não exista
+if "data_reserva" not in st.session_state:
+    st.session_state["data_reserva"] = hoje
 
 # ==========================================
 # FUNÇÕES DE AUTENTICAÇÃO E SEGURANÇA
@@ -70,7 +89,6 @@ def atualizar_senha(nova_senha):
 # FUNÇÃO DE VALIDAÇÃO DE CONFLITO (PRÉ-CHECAGEM)
 # ==========================================
 def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
-    # Lógica de interseção (< data_fim e > data_inicio)
     query = supabase.table("agendamentos").select("*")\
         .lt("data_inicio", dt_fim)\
         .gt("data_fim", dt_inicio)
@@ -82,7 +100,7 @@ def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
     return res.data
 
 # ==========================================
-# GERADOR DE CALENDÁRIO COM TOOLTIP SEGURO
+# GERADOR DE CALENDÁRIO COM TOOLTIP SEGURO E CLIQUÉVEL
 # ==========================================
 def gerar_calendario_html(ano, mes, todos_eventos):
     eventos_por_dia = {}
@@ -97,23 +115,23 @@ def gerar_calendario_html(ano, mes, todos_eventos):
             h_ini = dt_ini.strftime("%H:%M")
             h_fim = dt_fim.strftime("%H:%M")
             
-            # [MELHORIA] HTML.escape impede ataques XSS ou quebras visuais se o título contiver aspas ou tags HTML
             titulo_sanitizado = html.escape(ev["titulo"])
             eventos_por_dia[dia].append(f"• {titulo_sanitizado} ({h_ini} - {h_fim})")
 
-    # [MELHORIA] Corrigido o dia da semana para "Qua" (Quarta-feira)
     dias_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     
     html_str = """
     <style>
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; font-family: sans-serif; margin-top: 10px; }
     .cal-header { background: rgba(128,128,128, 0.2); color: inherit; font-weight: bold; padding: 8px 4px; border-radius: 6px; text-align: center; font-size: 13px; }
-    .cal-day { padding: 14px 4px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 15px; transition: 0.2s; border: 1px solid rgba(255,255,255,0.05); }
+    .cal-day { padding: 14px 4px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 15px; transition: 0.2s; border: 1px solid rgba(255,255,255,0.05); display: block; text-decoration: none; color: inherit; }
     .cal-day:hover { transform: scale(1.08); cursor: pointer; filter: brightness(1.2); }
     .cal-empty { background: transparent; border: none; }
     .cal-free { background-color: rgba(28, 131, 86, 0.75); color: white; }
     .cal-busy { background-color: rgba(201, 59, 43, 0.9); color: white; border: 1px solid #ff4b4b; box-shadow: 0 0 8px rgba(201,59,43,0.4); }
     .cal-today { outline: 2px solid #ffc107; outline-offset: -2px; }
+    .cal-selected { outline: 3px solid #00d4ff; outline-offset: -2px; box-shadow: 0 0 10px rgba(0, 212, 255, 0.8); }
+    .cal-past { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
     </style>
     <div class="cal-grid">
     """
@@ -122,26 +140,41 @@ def gerar_calendario_html(ano, mes, todos_eventos):
         html_str += f'<div class="cal-header">{d}</div>'
         
     cal = calendar.monthcalendar(ano, mes)
-    hoje = date.today()
+    hoje_data = date.today()
+    data_selecionada_state = st.session_state.get("data_reserva", hoje_data)
     
     for semana in cal:
         for dia in semana:
             if dia == 0:
                 html_str += '<div class="cal-empty"></div>'
             else:
+                data_celula = date(ano, mes, dia)
+                data_str_iso = data_celula.strftime("%Y-%m-%d")
+                
                 classe = "cal-free"
-                tooltip = "Dia Livre - Disponível para agendar"
+                tooltip = "Dia Livre - Clique para selecionar esta data"
                 
                 if dia in eventos_por_dia:
                     classe = "cal-busy"
                     detalhes = "&#10;".join(eventos_por_dia[dia])
-                    tooltip = f"📅 RESERVAS NO DIA {dia:02d}:&#10;{detalhes}"
+                    tooltip = f"📅 RESERVAS NO DIA {dia:02d}:&#10;{detalhes}&#10;👉 Clique para agendar outro horário neste dia"
                     
-                if ano == hoje.year and mes == hoje.month and dia == hoje.day:
+                if data_celula == hoje_data:
                     classe += " cal-today"
                     tooltip = f"[HOJE] {tooltip}"
                     
-                html_str += f'<div class="cal-day {classe}" title="{tooltip}">{dia}</div>'
+                # [NOVO] Destaque visual na célula se ela for a data selecionada atualmente no formulário
+                if data_celula == data_selecionada_state:
+                    classe += " cal-selected"
+                
+                # [NOVO] Se for um dia passado, desativa o clique e deixa transparente
+                if data_celula < hoje_data:
+                    classe += " cal-past"
+                    tooltip = "Data passada (Fechado para agendamentos)"
+                    html_str += f'<div class="cal-day {classe}" title="{tooltip}">{dia}</div>'
+                else:
+                    # [NOVO] Transforma em link que envia a data para a URL (?data_selecionada=YYYY-MM-DD)
+                    html_str += f'<a href="?data_selecionada={data_str_iso}" target="_self" class="cal-day {classe}" title="{tooltip}">{dia}</a>'
                 
     html_str += "</div>"
     return html_str
@@ -243,7 +276,6 @@ else:
     # ------------------------------------------
     # BUSCA OTIMIZADA DE DADOS NO BANCO
     # ------------------------------------------
-    # [MELHORIA] Baixa apenas agendamentos de 60 dias atrás em diante para poupar banda e memória
     data_limite_query = (date.today() - timedelta(days=60)).isoformat()
     res = supabase.table("agendamentos").select("*").gte("data_fim", data_limite_query).order("data_inicio").execute()
     todos_eventos = res.data if res.data else []
@@ -251,7 +283,6 @@ else:
     # ------------------------------------------
     # CÁLCULO DE MÉTRICAS (TOPO)
     # ------------------------------------------
-    hoje = date.today()
     eventos_hoje = 0
     meus_eventos = 0
     eventos_futuros = 0
@@ -338,7 +369,6 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações", type="primary"):
                                     agora = datetime.now()
                                     
-                                    # [MELHORIA] Bloqueia edição para horários no passado no dia de hoje
                                     if not new_title:
                                         st.warning("O título não pode ficar em branco.")
                                     elif new_start >= new_end:
@@ -349,12 +379,10 @@ else:
                                         new_dt_ini = datetime.combine(new_date, new_start).isoformat()
                                         new_dt_fim = datetime.combine(new_date, new_end).isoformat()
                                         
-                                        # 1ª Linha de defesa: Validação no Python
                                         conflitos = verificar_conflito(new_dt_ini, new_dt_fim, ignore_id=ev["id"])
                                         if conflitos:
                                             st.error(f"⚠️ Conflito com: **{conflitos[0]['titulo']}**.")
                                         else:
-                                            # 2ª Linha de defesa: Tratamento do bloqueio nativo do banco de dados
                                             try:
                                                 supabase.table("agendamentos").update({
                                                     "titulo": new_title,
@@ -381,7 +409,10 @@ else:
         with st.container(border=True):
             with st.form("form_agendamento", clear_on_submit=True):
                 titulo = st.text_input("Título / Assunto", placeholder="Ex: Reunião Comercial")
-                data_evento = st.date_input("Data da Reserva", min_value=hoje)
+                
+                # [NOVO] O campo de data agora é conectado à chave "data_reserva" do session_state
+                # Quando você clica no calendário, essa chave é atualizada e o input reflete na hora!
+                data_evento = st.date_input("Data da Reserva", min_value=hoje, key="data_reserva")
                 
                 c_ini, c_fim = st.columns(2)
                 with c_ini:
@@ -395,7 +426,6 @@ else:
                 if submit:
                     agora = datetime.now()
                     
-                    # [MELHORIA] Validação que impede agendar reuniões retroativas
                     if not titulo:
                         st.warning("Por favor, informe o título do evento.")
                     elif hora_inicio >= hora_fim:
@@ -406,13 +436,11 @@ else:
                         dt_inicio = datetime.combine(data_evento, hora_inicio).isoformat()
                         dt_fim = datetime.combine(data_evento, hora_fim).isoformat()
                         
-                        # 1ª Linha de defesa: Validação no Python (rápida para o front-end)
                         conflitos = verificar_conflito(dt_inicio, dt_fim)
                         
                         if conflitos:
                             st.error(f"⚠️ Conflito! Já reservado para: **{conflitos[0]['titulo']}** neste período.")
                         else:
-                            # 2ª Linha de defesa: Tratamento de exceção para a blindagem nativa do PostgreSQL/Supabase
                             try:
                                 supabase.table("agendamentos").insert({
                                     "titulo": titulo,
@@ -421,9 +449,11 @@ else:
                                     "user_id": st.session_state.user.id
                                 }).execute()
                                 st.success("🎉 Auditório reservado com sucesso!")
+                                # Limpa o parâmetro da URL após salvar para não fixar a data em futuros recarregamentos
+                                if "data_selecionada" in st.query_params:
+                                    del st.query_params["data_selecionada"]
                                 st.rerun()
                             except Exception as e:
-                                # Se o banco de dados bloquear um agendamento simultâneo milimétrico:
                                 if "evita_sobreposicao_horario" in str(e):
                                     st.error("⚠️ Outro usuário acabou de reservar esse horário uma fração de segundo antes de você! Por favor, escolha outro período no calendário.")
                                 else:
@@ -431,6 +461,7 @@ else:
 
     with col_cal:
         st.subheader("📆 Mapa de Disponibilidade")
+        st.caption("👉 **Dica:** Clique em qualquer dia livre ou ocupado abaixo para selecioná-lo na caixinha de Nova Reserva ao lado!")
         
         with st.container(border=True):
             cm1, cm2 = st.columns([3, 2])
@@ -438,21 +469,30 @@ else:
                 "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
             ]
+            
+            # Identifica qual ano e mês exibir (se o usuário clicou em uma data, o calendário foca naquele mês/ano)
+            mes_padrao = st.session_state["data_reserva"].month - 1
+            ano_padrao_idx = st.session_state["data_reserva"].year - (hoje.year - 1)
+            # Proteção caso o ano esteja fora do range do selectbox ( -1 a +2 anos)
+            if ano_padrao_idx < 0 or ano_padrao_idx > 3:
+                ano_padrao_idx = 1
+                
             with cm1:
                 mes_sel = st.selectbox(
                     "Mês", 
                     range(1, 13), 
-                    index=hoje.month - 1, 
+                    index=mes_padrao, 
                     format_func=lambda x: meses_nomes[x-1]
                 )
             with cm2:
-                ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=1)
+                ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=ano_padrao_idx)
             
             st.markdown("""
-            <div style="font-size: 13px; margin-bottom: 8px; display: flex; gap: 15px; justify-content: center;">
+            <div style="font-size: 13px; margin-bottom: 8px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
                 <span>🟢 <b>Livre</b></span>
-                <span>🔴 <b>Ocupado</b> (Passe o mouse)</span>
-                <span>💛 <b>Hoje</b></span>
+                <span>🔴 <b>Existe Evento - Verificar Disponibilidade</b> (Passe o mouse)</span>
+                <span>🟡 <b>Hoje</b></span>
+                <span>🔵 <b>Selecionado</b></span>
             </div>
             """, unsafe_allow_html=True)
             
