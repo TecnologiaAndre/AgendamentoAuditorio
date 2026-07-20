@@ -1,27 +1,3 @@
-```python
-# Just checking text wrapping or markdown rendering for custom header layout in streamlit
-print("Custom HTML / CSS header injection code ready.")
-
-
-```
-
-```text
-Custom HTML / CSS header injection code ready.
-
-
-```
-
-Com certeza! Colocar essa assinatura no **canto superior direito** (junto ao título principal da página ou logo acima das métricas) de forma sutil dá um toque extremamente profissional à aplicação.
-
-Para fazer isso sem quebrar a responsividade do layout e mantendo o design limpo, nós injetamos um pequeno bloco de HTML/CSS customizado via `st.markdown()` logo abaixo de `st.title("📅 Painel de Reservas do Auditório")`.
-
-Aqui está o **código completo e atualizado (`app.py` / `main.py`)** com a assinatura posicionada discretamente no canto superior direito:
-
----
-
-### 💻 Código Completo Atualizado
-
-```python
 import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
@@ -555,5 +531,3 @@ else:
                                                     st.error("⚠️ Outro agendamento foi feito para este mesmo horário milissegundos antes da sua alteração! Por favor, escolha outro período.")
                                                 else:
                                                     st.error(f"Erro ao salvar: {e}")
-
-```
