@@ -1,3 +1,27 @@
+```python
+# Just checking text wrapping or markdown rendering for custom header layout in streamlit
+print("Custom HTML / CSS header injection code ready.")
+
+
+```
+
+```text
+Custom HTML / CSS header injection code ready.
+
+
+```
+
+Com certeza! Colocar essa assinatura no **canto superior direito** (junto ao título principal da página ou logo acima das métricas) de forma sutil dá um toque extremamente profissional à aplicação.
+
+Para fazer isso sem quebrar a responsividade do layout e mantendo o design limpo, nós injetamos um pequeno bloco de HTML/CSS customizado via `st.markdown()` logo abaixo de `st.title("📅 Painel de Reservas do Auditório")`.
+
+Aqui está o **código completo e atualizado (`app.py` / `main.py`)** com a assinatura posicionada discretamente no canto superior direito:
+
+---
+
+### 💻 Código Completo Atualizado
+
+```python
 import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
@@ -294,7 +318,19 @@ else:
         if ev["user_id"] == st.session_state.user.id and dt_ini.date() >= hoje:
             meus_eventos += 1
 
-    st.title("📅 Painel de Reservas do Auditório")
+    # [NOVO] Cabeçalho com o título à esquerda e a assinatura sutil à direita no topo
+    col_titulo, col_marca = st.columns([3, 2])
+    with col_titulo:
+        st.title("📅 Painel de Reservas do Auditório")
+    with col_marca:
+        st.markdown(
+            """
+            <div style="text-align: right; font-size: 11.5px; color: gray; padding-top: 18px; font-family: sans-serif;">
+                © 2026 GERTAXI. All Rights Reserved. | Desenvolvido por <span style="color: #ff4b4b; font-weight: bold;">ANDRÉ GUIMARÃES</span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
     
     m1, m2, m3 = st.columns(3)
     m1.metric("📍 Reuniões Hoje", eventos_hoje)
@@ -399,7 +435,7 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE INFERIOR: VISUALIZADOR DE EVENTOS (COM CONFIRMAÇÃO DE CANCELAMENTO)
+    # PARTE INFERIOR: VISUALIZADOR DE EVENTOS
     # ==========================================================
     st.subheader("📋 Agenda de Eventos Agendados")
     st.caption("Confira abaixo os horários já reservados ou edite suas próprias reservas ativas.")
@@ -458,7 +494,6 @@ else:
                                 )
                                 
                             with b_del:
-                                # [NOVO] Popover nativo para evitar exclusões acidentais!
                                 with st.popover("❌ Cancelar", use_container_width=True):
                                     st.markdown("⚠️ **Confirmar exclusão?**")
                                     st.caption("Essa ação não poderá ser desfeita.")
@@ -520,3 +555,5 @@ else:
                                                     st.error("⚠️ Outro agendamento foi feito para este mesmo horário milissegundos antes da sua alteração! Por favor, escolha outro período.")
                                                 else:
                                                     st.error(f"Erro ao salvar: {e}")
+
+```
