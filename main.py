@@ -2,7 +2,7 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
 import calendar
-import html  # [MELHORIA] Importado para sanitizar textos contra XSS no calendário
+import html  # [MELHORIA] Sanitização de textos contra ataques XSS no calendário
 
 # Configuração da página
 st.set_page_config(
@@ -67,10 +67,10 @@ def atualizar_senha(nova_senha):
         st.error(f"Erro ao atualizar senha: {e}")
 
 # ==========================================
-# FUNÇÃO DE VALIDAÇÃO DE CONFLITO
+# FUNÇÃO DE VALIDAÇÃO DE CONFLITO (PRÉ-CHECAGEM)
 # ==========================================
 def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
-    # [ANÁLISE] A lógica de interseção (< data_fim e > data_inicio) está perfeitamente correta
+    # Lógica de interseção (< data_fim e > data_inicio)
     query = supabase.table("agendamentos").select("*")\
         .lt("data_inicio", dt_fim)\
         .gt("data_fim", dt_inicio)
@@ -97,11 +97,11 @@ def gerar_calendario_html(ano, mes, todos_eventos):
             h_ini = dt_ini.strftime("%H:%M")
             h_fim = dt_fim.strftime("%H:%M")
             
-            # [MELHORIA] HTML.escape impede ataques XSS ou quebra visual se o título contiver aspas ou HTML
+            # [MELHORIA] HTML.escape impede ataques XSS ou quebras visuais se o título contiver aspas ou tags HTML
             titulo_sanitizado = html.escape(ev["titulo"])
             eventos_por_dia[dia].append(f"• {titulo_sanitizado} ({h_ini} - {h_fim})")
 
-    # [MELHORIA] Corrigido erro de digitação de "Qua" para "Qua" (Quarta)
+    # [MELHORIA] Corrigido o dia da semana para "Qua" (Quarta-feira)
     dias_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     
     html_str = """
@@ -243,7 +243,7 @@ else:
     # ------------------------------------------
     # BUSCA OTIMIZADA DE DADOS NO BANCO
     # ------------------------------------------
-    # [MELHORIA] Baixa apenas agendamentos a partir de 60 dias atrás para não sobrecarregar o tráfego da API
+    # [MELHORIA] Baixa apenas agendamentos de 60 dias atrás em diante para poupar banda e memória
     data_limite_query = (date.today() - timedelta(days=60)).isoformat()
     res = supabase.table("agendamentos").select("*").gte("data_fim", data_limite_query).order("data_inicio").execute()
     todos_eventos = res.data if res.data else []
@@ -338,7 +338,7 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações", type="primary"):
                                     agora = datetime.now()
                                     
-                                    # [MELHORIA] Bloqueia edição para horários passados no dia atual
+                                    # [MELHORIA] Bloqueia edição para horários no passado no dia de hoje
                                     if not new_title:
                                         st.warning("O título não pode ficar em branco.")
                                     elif new_start >= new_end:
@@ -349,17 +349,25 @@ else:
                                         new_dt_ini = datetime.combine(new_date, new_start).isoformat()
                                         new_dt_fim = datetime.combine(new_date, new_end).isoformat()
                                         
+                                        # 1ª Linha de defesa: Validação no Python
                                         conflitos = verificar_conflito(new_dt_ini, new_dt_fim, ignore_id=ev["id"])
                                         if conflitos:
                                             st.error(f"⚠️ Conflito com: **{conflitos[0]['titulo']}**.")
                                         else:
-                                            supabase.table("agendamentos").update({
-                                                "titulo": new_title,
-                                                "data_inicio": new_dt_ini,
-                                                "data_fim": new_dt_fim
-                                            }).eq("id", ev["id"]).execute()
-                                            st.success("Atualizado!")
-                                            st.rerun()
+                                            # 2ª Linha de defesa: Tratamento do bloqueio nativo do banco de dados
+                                            try:
+                                                supabase.table("agendamentos").update({
+                                                    "titulo": new_title,
+                                                    "data_inicio": new_dt_ini,
+                                                    "data_fim": new_dt_fim
+                                                }).eq("id", ev["id"]).execute()
+                                                st.success("Atualizado!")
+                                                st.rerun()
+                                            except Exception as e:
+                                                if "evita_sobreposicao_horario" in str(e):
+                                                    st.error("⚠️ Outro agendamento foi feito para este mesmo horário milissegundos antes da sua alteração! Por favor, escolha outro período.")
+                                                else:
+                                                    st.error(f"Erro ao salvar: {e}")
 
     st.markdown("---")
 
@@ -387,7 +395,7 @@ else:
                 if submit:
                     agora = datetime.now()
                     
-                    # [MELHORIA] Validação que impede agendar reuniões em horas passadas do dia de hoje
+                    # [MELHORIA] Validação que impede agendar reuniões retroativas
                     if not titulo:
                         st.warning("Por favor, informe o título do evento.")
                     elif hora_inicio >= hora_fim:
@@ -398,11 +406,13 @@ else:
                         dt_inicio = datetime.combine(data_evento, hora_inicio).isoformat()
                         dt_fim = datetime.combine(data_evento, hora_fim).isoformat()
                         
+                        # 1ª Linha de defesa: Validação no Python (rápida para o front-end)
                         conflitos = verificar_conflito(dt_inicio, dt_fim)
                         
                         if conflitos:
                             st.error(f"⚠️ Conflito! Já reservado para: **{conflitos[0]['titulo']}** neste período.")
                         else:
+                            # 2ª Linha de defesa: Tratamento de exceção para a blindagem nativa do PostgreSQL/Supabase
                             try:
                                 supabase.table("agendamentos").insert({
                                     "titulo": titulo,
@@ -413,7 +423,11 @@ else:
                                 st.success("🎉 Auditório reservado com sucesso!")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Erro ao salvar: {e}")
+                                # Se o banco de dados bloquear um agendamento simultâneo milimétrico:
+                                if "evita_sobreposicao_horario" in str(e):
+                                    st.error("⚠️ Outro usuário acabou de reservar esse horário uma fração de segundo antes de você! Por favor, escolha outro período no calendário.")
+                                else:
+                                    st.error(f"Erro ao salvar: {e}")
 
     with col_cal:
         st.subheader("📆 Mapa de Disponibilidade")
