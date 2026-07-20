@@ -2,7 +2,6 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
 import calendar
-import html  # [MELHORIA] Sanitização de textos contra ataques XSS no calendário
 
 # Configuração da página
 st.set_page_config(
@@ -22,25 +21,14 @@ def init_connection():
 supabase = init_connection()
 
 # ==========================================
-# GESTÃO DE SESSÃO E PARÂMETROS DE URL (CLIQUE DO CALENDÁRIO)
+# GESTÃO DE SESSÃO E ESTADO DO SISTEMA
 # ==========================================
 if "user" not in st.session_state:
     st.session_state.user = None
 
 hoje = date.today()
 
-# [NOVO] Captura o dia clicado no calendário através da URL (?data_selecionada=YYYY-MM-DD)
-params = st.query_params
-if "data_selecionada" in params:
-    try:
-        data_clicada = datetime.strptime(params["data_selecionada"], "%Y-%m-%d").date()
-        # Garante que o usuário não tentou passar por URL uma data no passado
-        if data_clicada >= hoje:
-            st.session_state["data_reserva"] = data_clicada
-    except ValueError:
-        pass
-
-# Define a data padrão para o formulário no session_state caso ainda não exista
+# Define a data padrão para o formulário de reserva caso ainda não exista
 if "data_reserva" not in st.session_state:
     st.session_state["data_reserva"] = hoje
 
@@ -100,9 +88,10 @@ def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
     return res.data
 
 # ==========================================
-# GERADOR DE CALENDÁRIO COM TOOLTIP SEGURO E CLIQUÉVEL
+# CALENDÁRIO INTERATIVO NATIVO (SEM PERDER LOGIN)
 # ==========================================
-def gerar_calendario_html(ano, mes, todos_eventos):
+def desenhar_calendario_nativo(ano, mes, todos_eventos):
+    # Organiza os eventos do mês
     eventos_por_dia = {}
     for ev in todos_eventos:
         dt_ini = datetime.fromisoformat(ev["data_inicio"])
@@ -114,70 +103,65 @@ def gerar_calendario_html(ano, mes, todos_eventos):
             
             h_ini = dt_ini.strftime("%H:%M")
             h_fim = dt_fim.strftime("%H:%M")
-            
-            titulo_sanitizado = html.escape(ev["titulo"])
-            eventos_por_dia[dia].append(f"• {titulo_sanitizado} ({h_ini} - {h_fim})")
+            eventos_por_dia[dia].append(f"• {ev['titulo']} ({h_ini} - {h_fim})")
 
     dias_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     
-    html_str = """
+    # CSS leve apenas para ajustar o espaçamento dos botões do calendário
+    st.markdown("""
     <style>
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; font-family: sans-serif; margin-top: 10px; }
-    .cal-header { background: rgba(128,128,128, 0.2); color: inherit; font-weight: bold; padding: 8px 4px; border-radius: 6px; text-align: center; font-size: 13px; }
-    .cal-day { padding: 14px 4px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 15px; transition: 0.2s; border: 1px solid rgba(255,255,255,0.05); display: block; text-decoration: none; color: inherit; }
-    .cal-day:hover { transform: scale(1.08); cursor: pointer; filter: brightness(1.2); }
-    .cal-empty { background: transparent; border: none; }
-    .cal-free { background-color: rgba(28, 131, 86, 0.75); color: white; }
-    .cal-busy { background-color: rgba(201, 59, 43, 0.9); color: white; border: 1px solid #ff4b4b; box-shadow: 0 0 8px rgba(201,59,43,0.4); }
-    .cal-today { outline: 2px solid #ffc107; outline-offset: -2px; }
-    .cal-selected { outline: 3px solid #00d4ff; outline-offset: -2px; box-shadow: 0 0 10px rgba(0, 212, 255, 0.8); }
-    .cal-past { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+    div[data-testid="column"] { padding: 0px 2px !important; }
     </style>
-    <div class="cal-grid">
-    """
+    """, unsafe_allow_html=True)
     
-    for d in dias_semana:
-        html_str += f'<div class="cal-header">{d}</div>'
+    # Cabeçalho dos dias da semana
+    cols_header = st.columns(7)
+    for idx, d in enumerate(dias_semana):
+        cols_header[idx].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 13px; color: gray; margin-bottom: 5px;'>{d}</div>", unsafe_allow_html=True)
         
     cal = calendar.monthcalendar(ano, mes)
     hoje_data = date.today()
-    data_selecionada_state = st.session_state.get("data_reserva", hoje_data)
+    data_selecionada = st.session_state.get("data_reserva", hoje_data)
     
+    # Renderiza as semanas e os botões dos dias
     for semana in cal:
-        for dia in semana:
+        cols = st.columns(7)
+        for idx, dia in enumerate(semana):
             if dia == 0:
-                html_str += '<div class="cal-empty"></div>'
+                cols[idx].write("") # Espaço vazio no calendário
             else:
                 data_celula = date(ano, mes, dia)
-                data_str_iso = data_celula.strftime("%Y-%m-%d")
+                disabled = data_celula < hoje_data
                 
-                classe = "cal-free"
-                tooltip = "Dia Livre - Clique para selecionar esta data"
-                
+                # Definição de status visual e balão explicativo (tooltip)
                 if dia in eventos_por_dia:
-                    classe = "cal-busy"
-                    detalhes = "&#10;".join(eventos_por_dia[dia])
-                    tooltip = f"📅 RESERVAS NO DIA {dia:02d}:&#10;{detalhes}&#10;👉 Clique para agendar outro horário neste dia"
+                    detalhes = "\n".join(eventos_por_dia[dia])
+                    tooltip = f"📅 RESERVAS NO DIA {dia:02d}:\n{detalhes}\n\n👉 Clique para selecionar este dia"
+                    icone = "🔴"
+                else:
+                    tooltip = "Dia Livre - Clique para selecionar esta data"
+                    icone = "🟢"
                     
                 if data_celula == hoje_data:
-                    classe += " cal-today"
+                    icone = "🟡"
                     tooltip = f"[HOJE] {tooltip}"
                     
-                # [NOVO] Destaque visual na célula se ela for a data selecionada atualmente no formulário
-                if data_celula == data_selecionada_state:
-                    classe += " cal-selected"
-                
-                # [NOVO] Se for um dia passado, desativa o clique e deixa transparente
-                if data_celula < hoje_data:
-                    classe += " cal-past"
+                if data_celula == data_selecionada:
+                    icone = "🔵"
+                    tooltip = f"[SELECIONADO ATUALMENTE]\n{tooltip}"
+                    
+                if disabled:
+                    icone = "⬛"
                     tooltip = "Data passada (Fechado para agendamentos)"
-                    html_str += f'<div class="cal-day {classe}" title="{tooltip}">{dia}</div>'
-                else:
-                    # [NOVO] Transforma em link que envia a data para a URL (?data_selecionada=YYYY-MM-DD)
-                    html_str += f'<a href="?data_selecionada={data_str_iso}" target="_self" class="cal-day {classe}" title="{tooltip}">{dia}</a>'
                 
-    html_str += "</div>"
-    return html_str
+                # Rótulo do botão nativo do Streamlit (Ex: "🟢 15")
+                label = f"{icone} {dia:02d}"
+                
+                with cols[idx]:
+                    # st.button com WebSocket nativo: o clique atualiza o estado e não recarrega o browser!
+                    if st.button(label, key=f"btn_cal_{ano}_{mes}_{dia}", help=tooltip, disabled=disabled, use_container_width=True):
+                        st.session_state["data_reserva"] = data_celula
+                        st.rerun()
 
 # ==========================================
 # INTERFACE DE LOGIN / CADASTRO / RESGATE
@@ -410,8 +394,7 @@ else:
             with st.form("form_agendamento", clear_on_submit=True):
                 titulo = st.text_input("Título / Assunto", placeholder="Ex: Reunião Comercial")
                 
-                # [NOVO] O campo de data agora é conectado à chave "data_reserva" do session_state
-                # Quando você clica no calendário, essa chave é atualizada e o input reflete na hora!
+                # Sincronizado dinamicamente com o calendário via st.session_state["data_reserva"]
                 data_evento = st.date_input("Data da Reserva", min_value=hoje, key="data_reserva")
                 
                 c_ini, c_fim = st.columns(2)
@@ -449,9 +432,6 @@ else:
                                     "user_id": st.session_state.user.id
                                 }).execute()
                                 st.success("🎉 Auditório reservado com sucesso!")
-                                # Limpa o parâmetro da URL após salvar para não fixar a data em futuros recarregamentos
-                                if "data_selecionada" in st.query_params:
-                                    del st.query_params["data_selecionada"]
                                 st.rerun()
                             except Exception as e:
                                 if "evita_sobreposicao_horario" in str(e):
@@ -461,7 +441,7 @@ else:
 
     with col_cal:
         st.subheader("📆 Mapa de Disponibilidade")
-        st.caption("👉 **Dica:** Clique em qualquer dia livre ou ocupado abaixo para selecioná-lo na caixinha de Nova Reserva ao lado!")
+        st.caption("👉 **Dica:** Clique no botão de qualquer dia abaixo para preencher automaticamente a caixinha de Nova Reserva ao lado!")
         
         with st.container(border=True):
             cm1, cm2 = st.columns([3, 2])
@@ -470,10 +450,8 @@ else:
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
             ]
             
-            # Identifica qual ano e mês exibir (se o usuário clicou em uma data, o calendário foca naquele mês/ano)
             mes_padrao = st.session_state["data_reserva"].month - 1
             ano_padrao_idx = st.session_state["data_reserva"].year - (hoje.year - 1)
-            # Proteção caso o ano esteja fora do range do selectbox ( -1 a +2 anos)
             if ano_padrao_idx < 0 or ano_padrao_idx > 3:
                 ano_padrao_idx = 1
                 
@@ -487,14 +465,16 @@ else:
             with cm2:
                 ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=ano_padrao_idx)
             
+            # Legenda de ícones atualizada
             st.markdown("""
-            <div style="font-size: 13px; margin-bottom: 8px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+            <div style="font-size: 13px; margin-bottom: 12px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                 <span>🟢 <b>Livre</b></span>
-                <span>🔴 <b>Existe Evento - Verificar Disponibilidade</b> (Passe o mouse)</span>
+                <span>🔴 <b>Ocupado</b> (Passe o mouse)</span>
                 <span>🟡 <b>Hoje</b></span>
                 <span>🔵 <b>Selecionado</b></span>
+                <span>⬛ <b>Passado</b></span>
             </div>
             """, unsafe_allow_html=True)
             
-            cal_html = gerar_calendario_html(ano_sel, mes_sel, todos_eventos)
-            st.markdown(cal_html, unsafe_allow_html=True)
+            # Chama a nova função que gera o calendário usando grade nativa e botões
+            desenhar_calendario_nativo(ano_sel, mes_sel, todos_eventos)
