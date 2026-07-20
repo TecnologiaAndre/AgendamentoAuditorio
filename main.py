@@ -32,9 +32,20 @@ hoje = date.today()
 if "data_reserva" not in st.session_state:
     st.session_state["data_reserva"] = hoje
 
+# [NOVO] Dicionário no session_state para controlar qual reserva está com a edição aberta
+if "editando_reserva_id" not in st.session_state:
+    st.session_state["editando_reserva_id"] = None
+
 # Função de Callback: Executa ANTES de redesenhar a tela, evitando erros da API do Streamlit
 def selecionar_data_callback(nova_data):
     st.session_state["data_reserva"] = nova_data
+
+# [NOVO] Callback para alternar a abertura/fechamento do painel de edição de um card
+def alternar_edicao_callback(reserva_id):
+    if st.session_state["editando_reserva_id"] == reserva_id:
+        st.session_state["editando_reserva_id"] = None
+    else:
+        st.session_state["editando_reserva_id"] = reserva_id
 
 # ==========================================
 # FUNÇÕES DE AUTENTICAÇÃO E SEGURANÇA
@@ -388,7 +399,7 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE INFERIOR AGORA: VISUALIZADOR DE EVENTOS (DESCIDA)
+    # PARTE INFERIOR AGORA: VISUALIZADOR DE EVENTOS (COM BOTÕES ALINHADOS)
     # ==========================================================
     st.subheader("📋 Agenda de Eventos Agendados")
     st.caption("Confira abaixo os horários já reservados ou edite suas próprias reservas ativas.")
@@ -425,19 +436,38 @@ else:
                 card_style = "📆 **[Minha Reserva]** " if is_meu_evento else "📌 "
                 
                 with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 1])
+                    # [NOVO] Colunas ajustadas de [3, 2, 1] para [3, 2, 2] para caberem os dois botões
+                    c1, c2, c3 = st.columns([3, 2, 2])
+                    
                     with c1:
                         st.markdown(f"{card_style}**{ev['titulo']}**")
                     with c2:
                         st.markdown(f"🕒 `{data_str}` | **{hora_ini_str} às {hora_fim_str}**")
                     with c3:
                         if is_meu_evento:
-                            if st.button("❌ Cancelar", key=f"del_{ev['id']}", use_container_width=True):
-                                supabase.table("agendamentos").delete().eq("id", ev["id"]).execute()
-                                st.rerun()
+                            # Subcolunas para colocar os botões Editar e Cancelar perfeitamente lado a lado
+                            b_edit, b_del = st.columns(2)
+                            
+                            with b_edit:
+                                is_editing_this = st.session_state["editando_reserva_id"] == ev["id"]
+                                txt_edit_btn = "✖️ Fechar" if is_editing_this else "✏️ Editar"
+                                st.button(
+                                    txt_edit_btn, 
+                                    key=f"btn_edit_trigger_{ev['id']}", 
+                                    use_container_width=True, 
+                                    on_click=alternar_edicao_callback, 
+                                    args=(ev["id"],)
+                                )
+                                
+                            with b_del:
+                                if st.button("❌ Cancelar", key=f"del_{ev['id']}", use_container_width=True):
+                                    supabase.table("agendamentos").delete().eq("id", ev["id"]).execute()
+                                    st.rerun()
                     
-                    if is_meu_evento:
-                        with st.expander("✏️ Editar minha reserva"):
+                    # [NOVO] Em vez de expander, abrimos o container de edição se o usuário tiver clicado em "✏️ Editar"
+                    if is_meu_evento and st.session_state["editando_reserva_id"] == ev["id"]:
+                        with st.container(border=True):
+                            st.markdown("#### ✏️ Alterar dados da minha reserva")
                             with st.form(key=f"edit_form_{ev['id']}"):
                                 new_title = st.text_input("Título", value=ev["titulo"])
                                 new_date = st.date_input("Data", value=dt_ini_obj.date(), min_value=hoje)
@@ -448,7 +478,11 @@ else:
                                 with ec2:
                                     new_end = st.time_input("Término", value=dt_fim_obj.time())
                                 
-                                if st.form_submit_button("💾 Salvar Alterações", type="primary"):
+                                fc_1, fc_2 = st.columns([1, 4])
+                                with fc_1:
+                                    submit_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
+                                
+                                if submit_edit:
                                     agora = datetime.now()
                                     
                                     if not new_title:
@@ -471,6 +505,7 @@ else:
                                                     "data_inicio": new_dt_ini,
                                                     "data_fim": new_dt_fim
                                                 }).eq("id", ev["id"]).execute()
+                                                st.session_state["editando_reserva_id"] = None
                                                 st.success("Atualizado!")
                                                 st.rerun()
                                             except Exception as e:
