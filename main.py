@@ -32,7 +32,7 @@ hoje = date.today()
 if "data_reserva" not in st.session_state:
     st.session_state["data_reserva"] = hoje
 
-# [NOVO] Função de Callback: Executa ANTES de redesenhar a tela, evitando erros da API do Streamlit!
+# Função de Callback: Executa ANTES de redesenhar a tela, evitando erros da API do Streamlit
 def selecionar_data_callback(nova_data):
     st.session_state["data_reserva"] = nova_data
 
@@ -156,8 +156,6 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
                 label = f"{icone} {dia:02d}"
                 
                 with cols[idx]:
-                    # [CORREÇÃO] Em vez de alterar o session_state dentro de um if st.button(),
-                    # nós passamos a função de callback via on_click=selecionar_data_callback!
                     st.button(
                         label, 
                         key=f"btn_cal_{ano}_{mes}_{dia}", 
@@ -295,10 +293,105 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE SUPERIOR: VISUALIZADOR DE EVENTOS
+    # PARTE SUPERIOR AGORA: FORMULÁRIO (ESQUERDA) E CALENDÁRIO (DIREITA)
+    # ==========================================================
+    col_form, col_cal = st.columns([1, 1.2])
+
+    with col_form:
+        st.subheader("➕ Nova Reserva")
+        with st.container(border=True):
+            with st.form("form_agendamento", clear_on_submit=True):
+                titulo = st.text_input("Título / Assunto", placeholder="Ex: Reunião Comercial")
+                
+                data_evento = st.date_input("Data da Reserva", min_value=hoje, key="data_reserva")
+                
+                c_ini, c_fim = st.columns(2)
+                with c_ini:
+                    hora_inicio = st.time_input("Horário de Início", value=time(9, 0))
+                with c_fim:
+                    hora_fim = st.time_input("Horário de Término", value=time(10, 0))
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                submit = st.form_submit_button("Aguardar e Reservar Auditório", use_container_width=True, type="primary")
+                
+                if submit:
+                    agora = datetime.now()
+                    
+                    if not titulo:
+                        st.warning("Por favor, informe o título do evento.")
+                    elif hora_inicio >= hora_fim:
+                        st.error("O término deve ser posterior ao início.")
+                    elif data_evento == hoje and hora_inicio <= agora.time():
+                        st.error("⚠️ Você não pode agendar um horário que já passou hoje!")
+                    else:
+                        dt_inicio = datetime.combine(data_evento, hora_inicio).isoformat()
+                        dt_fim = datetime.combine(data_evento, hora_fim).isoformat()
+                        
+                        conflitos = verificar_conflito(dt_inicio, dt_fim)
+                        
+                        if conflitos:
+                            st.error(f"⚠️ Conflito! Já reservado para: **{conflitos[0]['titulo']}** neste período.")
+                        else:
+                            try:
+                                supabase.table("agendamentos").insert({
+                                    "titulo": titulo,
+                                    "data_inicio": dt_inicio,
+                                    "data_fim": dt_fim,
+                                    "user_id": st.session_state.user.id
+                                }).execute()
+                                st.success("🎉 Auditório reservado com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                if "evita_sobreposicao_horario" in str(e):
+                                    st.error("⚠️ Outro usuário acabou de reservar esse horário uma fração de segundo antes de você! Por favor, escolha outro período no calendário.")
+                                else:
+                                    st.error(f"Erro ao salvar: {e}")
+
+    with col_cal:
+        st.subheader("📆 Mapa de Disponibilidade")
+        st.caption("👉 **Dica:** Clique no botão de qualquer dia abaixo para preencher automaticamente a caixinha de Nova Reserva ao lado!")
+        
+        with st.container(border=True):
+            cm1, cm2 = st.columns([3, 2])
+            meses_nomes = [
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+            ]
+            
+            mes_padrao = st.session_state["data_reserva"].month - 1
+            ano_padrao_idx = st.session_state["data_reserva"].year - (hoje.year - 1)
+            if ano_padrao_idx < 0 or ano_padrao_idx > 3:
+                ano_padrao_idx = 1
+                
+            with cm1:
+                mes_sel = st.selectbox(
+                    "Mês", 
+                    range(1, 13), 
+                    index=mes_padrao, 
+                    format_func=lambda x: meses_nomes[x-1]
+                )
+            with cm2:
+                ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=ano_padrao_idx)
+            
+            st.markdown("""
+            <div style="font-size: 13px; margin-bottom: 12px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                <span>🟢 <b>Livre</b></span>
+                <span>🔴 <b>Ocupado - Verificar Disponibilidade</b> (Passe o mouse)</span>
+                <span>🟡 <b>Hoje</b></span>
+                <span>🔵 <b>Selecionado</b></span>
+                <span>⬛ <b>Passado</b></span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            desenhar_calendario_nativo(ano_sel, mes_sel, todos_eventos)
+
+    st.markdown("---")
+
+    # ==========================================================
+    # PARTE INFERIOR AGORA: VISUALIZADOR DE EVENTOS (DESCIDA)
     # ==========================================================
     st.subheader("📋 Agenda de Eventos Agendados")
-    st.caption("Confira abaixo os horários já reservados antes de criar uma nova solicitação.")
+    st.caption("Confira abaixo os horários já reservados ou edite suas próprias reservas ativas.")
     
     eventos_filtrados = []
     for ev in todos_eventos:
@@ -385,99 +478,3 @@ else:
                                                     st.error("⚠️ Outro agendamento foi feito para este mesmo horário milissegundos antes da sua alteração! Por favor, escolha outro período.")
                                                 else:
                                                     st.error(f"Erro ao salvar: {e}")
-
-    st.markdown("---")
-
-    # ==========================================================
-    # PARTE INFERIOR: FORMULÁRIO (ESQUERDA) E CALENDÁRIO (DIREITA)
-    # ==========================================================
-    col_form, col_cal = st.columns([1, 1.2])
-
-    with col_form:
-        st.subheader("➕ Nova Reserva")
-        with st.container(border=True):
-            with st.form("form_agendamento", clear_on_submit=True):
-                titulo = st.text_input("Título / Assunto", placeholder="Ex: Reunião Comercial")
-                
-                # O campo é vinculado via key="data_reserva" sem conflito com o calendário!
-                data_evento = st.date_input("Data da Reserva", min_value=hoje, key="data_reserva")
-                
-                c_ini, c_fim = st.columns(2)
-                with c_ini:
-                    hora_inicio = st.time_input("Horário de Início", value=time(9, 0))
-                with c_fim:
-                    hora_fim = st.time_input("Horário de Término", value=time(10, 0))
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                submit = st.form_submit_button("Aguardar e Reservar Auditório", use_container_width=True, type="primary")
-                
-                if submit:
-                    agora = datetime.now()
-                    
-                    if not titulo:
-                        st.warning("Por favor, informe o título do evento.")
-                    elif hora_inicio >= hora_fim:
-                        st.error("O término deve ser posterior ao início.")
-                    elif data_evento == hoje and hora_inicio <= agora.time():
-                        st.error("⚠️ Você não pode agendar um horário que já passou hoje!")
-                    else:
-                        dt_inicio = datetime.combine(data_evento, hora_inicio).isoformat()
-                        dt_fim = datetime.combine(data_evento, hora_fim).isoformat()
-                        
-                        conflitos = verificar_conflito(dt_inicio, dt_fim)
-                        
-                        if conflitos:
-                            st.error(f"⚠️ Conflito! Já reservado para: **{conflitos[0]['titulo']}** neste período.")
-                        else:
-                            try:
-                                supabase.table("agendamentos").insert({
-                                    "titulo": titulo,
-                                    "data_inicio": dt_inicio,
-                                    "data_fim": dt_fim,
-                                    "user_id": st.session_state.user.id
-                                }).execute()
-                                st.success("🎉 Auditório reservado com sucesso!")
-                                st.rerun()
-                            except Exception as e:
-                                if "evita_sobreposicao_horario" in str(e):
-                                    st.error("⚠️ Outro usuário acabou de reservar esse horário uma fração de segundo antes de você! Por favor, escolha outro período no calendário.")
-                                else:
-                                    st.error(f"Erro ao salvar: {e}")
-
-    with col_cal:
-        st.subheader("📆 Mapa de Disponibilidade")
-        st.caption("👉 **Dica:** Clique no botão de qualquer dia abaixo para preencher automaticamente a caixinha de Nova Reserva ao lado!")
-        
-        with st.container(border=True):
-            cm1, cm2 = st.columns([3, 2])
-            meses_nomes = [
-                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
-                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-            ]
-            
-            mes_padrao = st.session_state["data_reserva"].month - 1
-            ano_padrao_idx = st.session_state["data_reserva"].year - (hoje.year - 1)
-            if ano_padrao_idx < 0 or ano_padrao_idx > 3:
-                ano_padrao_idx = 1
-                
-            with cm1:
-                mes_sel = st.selectbox(
-                    "Mês", 
-                    range(1, 13), 
-                    index=mes_padrao, 
-                    format_func=lambda x: meses_nomes[x-1]
-                )
-            with cm2:
-                ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=ano_padrao_idx)
-            
-            st.markdown("""
-            <div style="font-size: 13px; margin-bottom: 12px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-                <span>🟢 <b>Livre</b></span>
-                <span>🔴 <b>Ocupado - Verificar Disponibilidade</b> (Passe o mouse)</span>
-                <span>🟡 <b>Hoje</b></span>
-                <span>🔵 <b>Selecionado</b></span>
-                <span>⬛ <b>Passado</b></span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            desenhar_calendario_nativo(ano_sel, mes_sel, todos_eventos)
