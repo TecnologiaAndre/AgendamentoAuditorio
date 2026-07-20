@@ -301,9 +301,11 @@ else:
     with col_marca:
         st.markdown(
             """
-            <div style="text-align: right; font-size: 11.5px; color: gray; padding-top: 18px; font-family: sans-serif;">
-                © 2026 GERTAXI. All Rights Reserved. | Desenvolvido por <span style="color: #ff4b4b; font-weight: bold;">ANDRÉ GUIMARÃES</span>
-            </div>
+            <div class="footer">
+                    &copy; 2026 GERTAXI. All Rights Reserved. | Desenvolvido por <br style="display:none;">
+                    <!-- Link do LinkedIn inserido aqui -->
+                    <a href="https://www.linkedin.com/in/andr3guimara3s/" target="_blank" class="footer-link">ANDRÉ GUIMARÃES</a>
+                </div>
             """, 
             unsafe_allow_html=True
         )
