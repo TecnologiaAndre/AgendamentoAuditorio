@@ -422,7 +422,7 @@ else:
                 hora_fim_str = dt_fim_obj.strftime("%H:%M")
                 
                 is_meu_evento = ev["user_id"] == st.session_state.user.id
-                card_style = "🥇 **[Minha Reserva]** " if is_meu_evento else "📌 "
+                card_style = "📆 **[Minha Reserva]** " if is_meu_evento else "📌 "
                 
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([3, 2, 1])
