@@ -32,6 +32,10 @@ hoje = date.today()
 if "data_reserva" not in st.session_state:
     st.session_state["data_reserva"] = hoje
 
+# [NOVO] Função de Callback: Executa ANTES de redesenhar a tela, evitando erros da API do Streamlit!
+def selecionar_data_callback(nova_data):
+    st.session_state["data_reserva"] = nova_data
+
 # ==========================================
 # FUNÇÕES DE AUTENTICAÇÃO E SEGURANÇA
 # ==========================================
@@ -88,10 +92,9 @@ def verificar_conflito(dt_inicio, dt_fim, ignore_id=None):
     return res.data
 
 # ==========================================
-# CALENDÁRIO INTERATIVO NATIVO (SEM PERDER LOGIN)
+# CALENDÁRIO INTERATIVO NATIVO COM CALLBACK
 # ==========================================
 def desenhar_calendario_nativo(ano, mes, todos_eventos):
-    # Organiza os eventos do mês
     eventos_por_dia = {}
     for ev in todos_eventos:
         dt_ini = datetime.fromisoformat(ev["data_inicio"])
@@ -107,14 +110,12 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
 
     dias_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     
-    # CSS leve apenas para ajustar o espaçamento dos botões do calendário
     st.markdown("""
     <style>
     div[data-testid="column"] { padding: 0px 2px !important; }
     </style>
     """, unsafe_allow_html=True)
     
-    # Cabeçalho dos dias da semana
     cols_header = st.columns(7)
     for idx, d in enumerate(dias_semana):
         cols_header[idx].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 13px; color: gray; margin-bottom: 5px;'>{d}</div>", unsafe_allow_html=True)
@@ -123,17 +124,15 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
     hoje_data = date.today()
     data_selecionada = st.session_state.get("data_reserva", hoje_data)
     
-    # Renderiza as semanas e os botões dos dias
     for semana in cal:
         cols = st.columns(7)
         for idx, dia in enumerate(semana):
             if dia == 0:
-                cols[idx].write("") # Espaço vazio no calendário
+                cols[idx].write("")
             else:
                 data_celula = date(ano, mes, dia)
                 disabled = data_celula < hoje_data
                 
-                # Definição de status visual e balão explicativo (tooltip)
                 if dia in eventos_por_dia:
                     detalhes = "\n".join(eventos_por_dia[dia])
                     tooltip = f"📅 RESERVAS NO DIA {dia:02d}:\n{detalhes}\n\n👉 Clique para selecionar este dia"
@@ -154,14 +153,20 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
                     icone = "⬛"
                     tooltip = "Data passada (Fechado para agendamentos)"
                 
-                # Rótulo do botão nativo do Streamlit (Ex: "🟢 15")
                 label = f"{icone} {dia:02d}"
                 
                 with cols[idx]:
-                    # st.button com WebSocket nativo: o clique atualiza o estado e não recarrega o browser!
-                    if st.button(label, key=f"btn_cal_{ano}_{mes}_{dia}", help=tooltip, disabled=disabled, use_container_width=True):
-                        st.session_state["data_reserva"] = data_celula
-                        st.rerun()
+                    # [CORREÇÃO] Em vez de alterar o session_state dentro de um if st.button(),
+                    # nós passamos a função de callback via on_click=selecionar_data_callback!
+                    st.button(
+                        label, 
+                        key=f"btn_cal_{ano}_{mes}_{dia}", 
+                        help=tooltip, 
+                        disabled=disabled, 
+                        use_container_width=True,
+                        on_click=selecionar_data_callback,
+                        args=(data_celula,)
+                    )
 
 # ==========================================
 # INTERFACE DE LOGIN / CADASTRO / RESGATE
@@ -394,7 +399,7 @@ else:
             with st.form("form_agendamento", clear_on_submit=True):
                 titulo = st.text_input("Título / Assunto", placeholder="Ex: Reunião Comercial")
                 
-                # Sincronizado dinamicamente com o calendário via st.session_state["data_reserva"]
+                # O campo é vinculado via key="data_reserva" sem conflito com o calendário!
                 data_evento = st.date_input("Data da Reserva", min_value=hoje, key="data_reserva")
                 
                 c_ini, c_fim = st.columns(2)
@@ -465,7 +470,6 @@ else:
             with cm2:
                 ano_sel = st.selectbox("Ano", range(hoje.year - 1, hoje.year + 3), index=ano_padrao_idx)
             
-            # Legenda de ícones atualizada
             st.markdown("""
             <div style="font-size: 13px; margin-bottom: 12px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                 <span>🟢 <b>Livre</b></span>
@@ -476,5 +480,4 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # Chama a nova função que gera o calendário usando grade nativa e botões
             desenhar_calendario_nativo(ano_sel, mes_sel, todos_eventos)
