@@ -469,7 +469,7 @@ else:
             st.markdown("""
             <div style="font-size: 13px; margin-bottom: 12px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                 <span>🟢 <b>Livre</b></span>
-                <span>🔴 <b>Ocupado</b> (Passe o mouse)</span>
+                <span>🔴 <b>Ocupado - Verificar Disponibilidade</b> (Passe o mouse)</span>
                 <span>🟡 <b>Hoje</b></span>
                 <span>🔵 <b>Selecionado</b></span>
                 <span>⬛ <b>Passado</b></span>
