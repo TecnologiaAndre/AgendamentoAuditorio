@@ -415,7 +415,7 @@ else:
     # ==========================================================
     # PARTE INFERIOR: VISUALIZADOR DE EVENTOS
     # ==========================================================
-    st.subheader("📋 Agenda de Eventos Agendados")
+    st.subheader("📋 Agenda de Eventos ")
     st.caption("Confira abaixo os horários já reservados ou edite suas próprias reservas ativas.")
     
     eventos_filtrados = []
