@@ -103,7 +103,7 @@ def signup(email, password, nome, sobrenome):
                 }
             }
         })
-        st.success("🎉 Cadastro realizado com sucesso! Agora vá até o seu e-mail e confirme o cadastro!.")
+        st.success("🎉 Cadastro realizado com sucesso! Agora vá até o seu e-mail e confirme o cadastro!")
     except Exception as e:
         err_msg = str(e)
         if "For security purposes" in err_msg:
