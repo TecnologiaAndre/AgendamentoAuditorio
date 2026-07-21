@@ -68,21 +68,32 @@ supabase = init_connection()
 # vez: se detectar "#access_token=" na URL, reescreve a mesma URL movendo
 # os dados para query string (?access_token=...) e recarrega a página.
 # A partir daí, o Python consegue ler st.query_params normalmente.
+#
+# IMPORTANTE: usamos st.components.v1.html (não st.markdown) porque
+# st.markdown injeta HTML via innerHTML, e navegadores NÃO executam tags
+# <script> inseridas dessa forma - é uma restrição do próprio browser.
+# components.v1.html renderiza o conteúdo dentro de um <iframe>, onde
+# scripts executam normalmente. Como o script roda dentro do iframe, usamos
+# "window.top.location" (a janela de nível mais alto, isto é, a aba real
+# do navegador) em vez de "window.location" (que apontaria só para a URL
+# interna do iframe).
 if "access_token" not in st.query_params:
-    st.markdown(
+    import streamlit.components.v1 as components
+    components.html(
         """
         <script>
         (function() {
-            const hash = window.location.hash;
+            const hash = window.top.location.hash;
             if (hash && hash.includes("access_token=")) {
                 const params = new URLSearchParams(hash.substring(1));
-                const newUrl = window.location.pathname + "?" + params.toString();
-                window.location.replace(newUrl);
+                const newUrl = window.top.location.pathname + "?" + params.toString();
+                window.top.location.replace(newUrl);
             }
         })();
         </script>
         """,
-        unsafe_allow_html=True
+        height=0,
+        width=0
     )
 
 # ==========================================
