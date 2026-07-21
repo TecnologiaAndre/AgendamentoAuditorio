@@ -261,7 +261,7 @@ else:
                     atualizar_senha(nova_senha)
                     
     st.sidebar.divider()
-    st.sidebar.subheader("🔍 Filtros da Agenda")
+    st.sidebar.subheader("🔎 Filtros da Agenda")
     
     filtro_periodo = st.sidebar.radio(
         "Período de visualização:",
