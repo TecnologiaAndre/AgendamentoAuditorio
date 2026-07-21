@@ -291,7 +291,7 @@ else:
         
     st.sidebar.divider()
     
-    with st.sidebar.expander("🔒 Alterar Minha Senha"):
+    with st.sidebar.expander("🔒 Alterar Senha"):
         with st.form("form_mudar_senha", clear_on_submit=True):
             nova_senha = st.text_input("Nova Senha", type="password")
             conf_senha = st.text_input("Confirme a Nova Senha", type="password")
