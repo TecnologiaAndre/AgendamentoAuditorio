@@ -11,6 +11,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# =====================================================================
+# CSS PARA OCULTAR CABEÇALHO, RODAPÉ E BOTÃO DE FULLSCREEN (IFRAME)
+# =====================================================================
+st.markdown("""
+    <style>
+    /* Oculta o rodapé 'Built with Streamlit' e barras inferiores */
+    footer {visibility: hidden !important;}
+    
+    /* Oculta o cabeçalho padrão do Streamlit */
+    header {visibility: hidden !important;}
+    
+    /* Remove a barra flutuante de iFrame/Fullscreen no Streamlit Cloud */
+    .stApp > footer {display: none !important;}
+    div[data-testid="stStatusWidget"] {visibility: hidden !important;}
+    </style>
+""", unsafe_allow_html=True)
+
 # Inicialização do Supabase com cache do Streamlit
 @st.cache_resource
 def init_connection():
@@ -56,7 +73,13 @@ def login(email, password):
         st.session_state.user = user.user
         st.rerun()
     except Exception as e:
-        st.error(f"Erro no login: {e}")
+        err_msg = str(e)
+        if "Invalid login credentials" in err_msg:
+            st.error("⚠️ E-mail ou senha incorretos.")
+        elif "For security purposes" in err_msg:
+            st.error("⏳ Muitas tentativas seguidas. Aguarde alguns segundos e tente novamente.")
+        else:
+            st.error(f"Erro no login: {err_msg}")
 
 def signup(email, password, nome, sobrenome):
     try:
@@ -72,7 +95,13 @@ def signup(email, password, nome, sobrenome):
         })
         st.success("🎉 Cadastro realizado com sucesso! Agora vá na aba 'Entrar' e faça seu login.")
     except Exception as e:
-        st.error(f"Erro no cadastro: {e}")
+        err_msg = str(e)
+        if "For security purposes" in err_msg:
+            st.error("⏳ Por questões de segurança do servidor, aguarde alguns segundos antes de tentar cadastrar novamente.")
+        elif "User already registered" in err_msg:
+            st.error("⚠️ Este e-mail já está cadastrado no sistema.")
+        else:
+            st.error(f"Erro no cadastro: {err_msg}")
 
 def recuperar_senha(email):
     try:
@@ -193,7 +222,10 @@ if not st.session_state.user:
             email = st.text_input("E-mail", key="login_email")
             password = st.text_input("Senha", type="password", key="login_pass")
             if st.button("Entrar", use_container_width=True, type="primary"):
-                login(email, password)
+                if not email.strip() or not password.strip():
+                    st.warning("⚠️ Preencha o e-mail e a senha.")
+                else:
+                    login(email.strip(), password)
                 
         with tab2:
             col_nome, col_sobre = st.columns(2)
@@ -206,22 +238,24 @@ if not st.session_state.user:
             new_password = st.text_input("Senha", type="password", key="signup_pass")
             
             if st.button("Cadastrar", use_container_width=True):
-                if not new_nome or not new_sobrenome:
+                if not new_nome.strip() or not new_sobrenome.strip():
                     st.warning("⚠️ Por favor, preencha seu nome e sobrenome.")
-                elif not new_email or not new_password:
+                elif not new_email.strip() or not new_password.strip():
                     st.warning("⚠️ Preencha o e-mail e a senha.")
+                elif len(new_password) < 6:
+                    st.warning("⚠️ A senha deve ter pelo menos 6 caracteres.")
                 else:
-                    signup(new_email, new_password, new_nome, new_sobrenome)
+                    signup(new_email.strip(), new_password, new_nome.strip(), new_sobrenome.strip())
                     
         with tab3:
             st.markdown("### Resgatar Acesso")
             st.write("Digite o e-mail cadastrado. Enviaremos um link de autenticação seguro para você poder entrar e escolher uma nova senha.")
             rec_email = st.text_input("E-mail da sua conta", key="rec_email")
             if st.button("Enviar link de resgate", use_container_width=True):
-                if not rec_email:
+                if not rec_email.strip():
                     st.warning("⚠️ Digite um e-mail válido para receber o link.")
                 else:
-                    recuperar_senha(rec_email)
+                    recuperar_senha(rec_email.strip())
 
 # ==========================================
 # ÁREA LOGADA - SISTEMA DE AGENDAMENTO
@@ -294,7 +328,7 @@ else:
         if ev["user_id"] == st.session_state.user.id and dt_ini.date() >= hoje:
             meus_eventos += 1
 
-    # [NOVO] Cabeçalho com o título à esquerda e a assinatura sutil à direita no topo
+    # Cabeçalho com o título à esquerda e a assinatura sutil à direita no topo
     col_titulo, col_marca = st.columns([3, 2])
     with col_titulo:
         st.title("📅 Painel de Reservas do Auditório")
@@ -303,7 +337,6 @@ else:
             """
              <div style="text-align: right; font-size: 11.5px; color: gray; padding-top: 18px; font-family: sans-serif;">
                     &copy; 2026 GERTAXI. All Rights Reserved. | Desenvolvido por <br style="display:none;">
-                    <!-- Link do LinkedIn inserido aqui -->
                     <a href="https://www.linkedin.com/in/andr3guimara3s/" target="_blank" class="footer-link">ANDRÉ GUIMARÃES</a>
                 </div>
             """, 
@@ -342,7 +375,7 @@ else:
                 if submit:
                     agora = datetime.now()
                     
-                    if not titulo:
+                    if not titulo.strip():
                         st.warning("Por favor, informe o título do evento.")
                     elif hora_inicio >= hora_fim:
                         st.error("O término deve ser posterior ao início.")
@@ -359,7 +392,7 @@ else:
                         else:
                             try:
                                 supabase.table("agendamentos").insert({
-                                    "titulo": titulo,
+                                    "titulo": titulo.strip(),
                                     "data_inicio": dt_inicio,
                                     "data_fim": dt_fim,
                                     "user_id": st.session_state.user.id
@@ -505,7 +538,7 @@ else:
                                 if submit_edit:
                                     agora = datetime.now()
                                     
-                                    if not new_title:
+                                    if not new_title.strip():
                                         st.warning("O título não pode ficar em branco.")
                                     elif new_start >= new_end:
                                         st.error("O término deve ser posterior ao início.")
@@ -521,7 +554,7 @@ else:
                                         else:
                                             try:
                                                 supabase.table("agendamentos").update({
-                                                    "titulo": new_title,
+                                                    "titulo": new_title.strip(),
                                                     "data_inicio": new_dt_ini,
                                                     "data_fim": new_dt_fim
                                                 }).eq("id", ev["id"]).execute()
