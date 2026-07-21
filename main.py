@@ -184,7 +184,7 @@ if not st.session_state.user:
     st.markdown("<br><br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.title("🏢 Agendamento do Auditório")
+        st.title("📅 Agendamento do Auditório")
         st.write("Faça login para gerenciar e reservar horários.")
         
         tab1, tab2, tab3 = st.tabs(["🔑 Entrar", "📝 Cadastrar", "❓ Esqueci a Senha"])
