@@ -240,7 +240,7 @@ else:
     st.sidebar.markdown(f"**Usuário:**\n### 👤 {nome_exibicao}")
     st.sidebar.caption(f"E-mail de login: `{st.session_state.user.email}`")
     
-    if st.sidebar.button("🚪🏃 Sair do Sistema", use_container_width=True):
+    if st.sidebar.button("🏃 Sair do Sistema", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.user = None
         st.rerun()
