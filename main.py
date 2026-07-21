@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
 import calendar
+from zoneinfo import ZoneInfo
 
 # Configuração da página
 st.set_page_config(
