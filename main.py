@@ -456,7 +456,7 @@ else:
     st.markdown("---")
 
     # ==========================================================
-    # PARTE INFERIOR: VISUALIZADOR DE EVENTOS E EDICÃO
+    # PARTE INFERIOR: VISUALIZADOR DE EVENTOS
     # ==========================================================
     st.subheader("📋 Agenda de Eventos ")
     st.caption("Confira abaixo os horários já reservados ou edite suas próprias reservas ativas.")
@@ -515,58 +515,64 @@ else:
                                 )
                                 
                             with b_del:
-                                if st.button("🗑️ Excluir", key=f"btn_del_{ev['id']}", use_container_width=True, type="secondary"):
-                                    try:
-                                        supabase.table("agendamentos").delete().eq("id", ev["id"]).execute()
-                                        st.success("Reserva excluída!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Erro ao excluir: {e}")
-                    
-                    # PAINEL EXPANSÍVEL DE EDIÇÃO (Se o usuário clicou em Editar)
-                    if st.session_state["editando_reserva_id"] == ev["id"]:
-                        st.markdown("---")
-                        st.markdown("##### ✏️ Editar Informações da Reserva")
-                        
-                        with st.form(f"form_edit_reserva_{ev['id']}"):
-                            novo_titulo = st.text_input("Título / Assunto", value=ev["titulo"])
-                            nova_data = st.date_input("Data da Reserva", value=dt_ini_obj.date(), min_value=hoje)
-                            
-                            ec1, ec2 = st.columns(2)
-                            with ec1:
-                                nova_hora_ini = st.time_input("Horário de Início", value=dt_ini_obj.time())
-                            with ec2:
-                                nova_hora_fim = st.time_input("Horário de Término", value=dt_fim_obj.time())
-                                
-                            btn_salvar_edicao = st.form_submit_button("Salvar Alterações", type="primary", use_container_width=True)
-                            
-                            if btn_salvar_edicao:
-                                agora = datetime.now()
-                                
-                                if not novo_titulo.strip():
-                                    st.warning("Informe o título.")
-                                elif nova_hora_ini >= nova_hora_fim:
-                                    st.error("O horário de término deve ser posterior ao início.")
-                                elif nova_data == hoje and nova_hora_ini <= agora.time():
-                                    st.error("⚠️ Você não pode mover uma reserva para um horário que já passou.")
-                                else:
-                                    nov_dt_ini = datetime.combine(nova_data, nova_hora_ini).isoformat()
-                                    nov_dt_fim = datetime.combine(nova_data, nova_hora_fim).isoformat()
+                                with st.popover("❌ Cancelar", use_container_width=True):
+                                    st.markdown("⚠️ **Confirmar exclusão?**")
+                                    st.caption("Essa ação não poderá ser desfeita.")
                                     
-                                    conflitos = verificar_conflito(nov_dt_ini, nov_dt_fim, ignore_id=ev["id"])
-                                    
-                                    if conflitos:
-                                        st.error(f"⚠️ Conflito! Já existe uma reserva no período: **{conflitos[0]['titulo']}**.")
-                                    else:
-                                        try:
-                                            supabase.table("agendamentos").update({
-                                                "titulo": novo_titulo.strip(),
-                                                "data_inicio": nov_dt_ini,
-                                                "data_fim": nov_dt_fim
-                                            }).eq("id", ev["id"]).execute()
-                                            
-                                            st.session_state["editando_reserva_id"] = None
-                                            st.success("Reserva atualizada com sucesso!")
+                                    pc1, pc2 = st.columns(2)
+                                    with pc1:
+                                        if st.button("Sim, Excluir", key=f"conf_del_{ev['id']}", type="primary", use_container_width=True):
+                                            supabase.table("agendamentos").delete().eq("id", ev["id"]).execute()
                                             st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Erro ao atualizar: {e}")
+                                    with pc2:
+                                        if st.button("Voltar", key=f"canc_del_{ev['id']}", use_container_width=True):
+                                            st.rerun()
+                    
+                    if is_meu_evento and st.session_state["editando_reserva_id"] == ev["id"]:
+                        with st.container(border=True):
+                            st.markdown("#### ✏️ Alterar dados da minha reserva")
+                            with st.form(key=f"edit_form_{ev['id']}"):
+                                new_title = st.text_input("Título", value=ev["titulo"])
+                                new_date = st.date_input("Data", value=dt_ini_obj.date(), min_value=hoje)
+                                
+                                ec1, ec2 = st.columns(2)
+                                with ec1:
+                                    new_start = st.time_input("Início", value=dt_ini_obj.time())
+                                with ec2:
+                                    new_end = st.time_input("Término", value=dt_fim_obj.time())
+                                
+                                fc_1, fc_2 = st.columns([1, 4])
+                                with fc_1:
+                                    submit_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
+                                
+                                if submit_edit:
+                                    agora = datetime.now()
+                                    
+                                    if not new_title.strip():
+                                        st.warning("O título não pode ficar em branco.")
+                                    elif new_start >= new_end:
+                                        st.error("O término deve ser posterior ao início.")
+                                    elif new_date == hoje and new_start <= agora.time():
+                                        st.error("⚠️ Você não pode alterar para um horário que já passou hoje.")
+                                    else:
+                                        new_dt_ini = datetime.combine(new_date, new_start).isoformat()
+                                        new_dt_fim = datetime.combine(new_date, new_end).isoformat()
+                                        
+                                        conflitos = verificar_conflito(new_dt_ini, new_dt_fim, ignore_id=ev["id"])
+                                        if conflitos:
+                                            st.error(f"⚠️ Conflito com: **{conflitos[0]['titulo']}**.")
+                                        else:
+                                            try:
+                                                supabase.table("agendamentos").update({
+                                                    "titulo": new_title.strip(),
+                                                    "data_inicio": new_dt_ini,
+                                                    "data_fim": new_dt_fim
+                                                }).eq("id", ev["id"]).execute()
+                                                st.session_state["editando_reserva_id"] = None
+                                                st.success("Atualizado!")
+                                                st.rerun()
+                                            except Exception as e:
+                                                if "evita_sobreposicao_horario" in str(e):
+                                                    st.error("⚠️ Outro agendamento foi feito para este mesmo horário milissegundos antes da sua alteração! Por favor, escolha outro período.")
+                                                else:
+                                                    st.error(f"Erro ao salvar: {e}")
