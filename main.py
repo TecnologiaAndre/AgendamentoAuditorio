@@ -236,7 +236,7 @@ else:
     else:
         nome_exibicao = st.session_state.user.email
 
-    st.sidebar.title("🏢 Auditório")
+    st.sidebar.title("🎦 Auditório")
     st.sidebar.markdown(f"**Usuário:**\n### 👤 {nome_exibicao}")
     st.sidebar.caption(f"E-mail de login: `{st.session_state.user.email}`")
     
