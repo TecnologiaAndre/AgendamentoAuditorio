@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client
 from datetime import datetime, date, time, timedelta
-from zoneinfo import ZoneInfo
 import calendar
 
 # Configuração da página
@@ -58,55 +57,13 @@ def init_connection():
 
 supabase = init_connection()
 
-# =====================================================================
-# CAPTURA DO FRAGMENTO DA URL (#access_token=...) PARA RECOVERY DE SENHA
-# =====================================================================
-# O Supabase Auth entrega o link de "esqueci a senha" com os tokens depois
-# de "#" (fragmento), que NUNCA é enviado ao servidor - só existe no
-# navegador. O Streamlit (server-side) não consegue ler isso diretamente
-# via st.query_params. Este bloco injeta um JS mínimo que roda uma única
-# vez: se detectar "#access_token=" na URL, reescreve a mesma URL movendo
-# os dados para query string (?access_token=...) e recarrega a página.
-# A partir daí, o Python consegue ler st.query_params normalmente.
-#
-# IMPORTANTE: usamos st.components.v1.html (não st.markdown) porque
-# st.markdown injeta HTML via innerHTML, e navegadores NÃO executam tags
-# <script> inseridas dessa forma - é uma restrição do próprio browser.
-# components.v1.html renderiza o conteúdo dentro de um <iframe>, onde
-# scripts executam normalmente. Como o script roda dentro do iframe, usamos
-# "window.top.location" (a janela de nível mais alto, isto é, a aba real
-# do navegador) em vez de "window.location" (que apontaria só para a URL
-# interna do iframe).
-if "access_token" not in st.query_params:
-    import streamlit.components.v1 as components
-    components.html(
-        """
-        <script>
-        (function() {
-            const hash = window.top.location.hash;
-            if (hash && hash.includes("access_token=")) {
-                const params = new URLSearchParams(hash.substring(1));
-                const newUrl = window.top.location.pathname + "?" + params.toString();
-                window.top.location.replace(newUrl);
-            }
-        })();
-        </script>
-        """,
-        height=0,
-        width=0
-    )
-
 # ==========================================
 # GESTÃO DE SESSÃO E ESTADO DO SISTEMA
 # ==========================================
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# Sessão de recuperação de senha ativa (detectada via query params, ver bloco acima)
-if "recovery_session" not in st.session_state:
-    st.session_state.recovery_session = None
-
-hoje = agora_local().date()
+hoje = date.today()
 
 # Define a data padrão para o formulário de reserva caso ainda não exista
 if "data_reserva" not in st.session_state:
@@ -167,11 +124,6 @@ def signup(email, password, nome, sobrenome):
             st.error(f"Erro no cadastro: {err_msg}")
 
 def recuperar_senha(email):
-    # NOTA: o link de recuperação do Supabase Auth entrega o token no fragmento
-    # da URL (#access_token=...), que normalmente é processado por JS no client.
-    # Em apps Streamlit "puros" isso pode não ser capturado automaticamente —
-    # vale testar esse fluxo ponta a ponta (clicar no link, ver se a sessão de
-    # recovery é reconhecida antes de chamar atualizar_senha()).
     try:
         supabase.auth.reset_password_email(email)
         st.success("📩 E-mail de recuperação enviado! Verifique sua caixa de entrada e a pasta de Spam/Lixo Eletrônico.")
@@ -184,24 +136,6 @@ def atualizar_senha(nova_senha):
         st.success("🔒 Senha atualizada com sucesso!")
     except Exception as e:
         st.error(f"Erro ao atualizar senha: {e}")
-
-def processar_query_params_recovery():
-    """Verifica se a URL trouxe um access_token/refresh_token de recovery
-    (já convertidos de fragmento para query string pelo JS acima) e,
-    se sim, autentica essa sessão temporária no cliente Supabase para
-    permitir a troca de senha."""
-    qp = st.query_params
-    if "access_token" in qp and qp.get("type") == "recovery":
-        try:
-            access_token = qp["access_token"]
-            refresh_token = qp.get("refresh_token", "")
-            session_resp = supabase.auth.set_session(access_token, refresh_token)
-            st.session_state.recovery_session = session_resp.session
-            # Limpa os parâmetros da URL para não reprocessar / não deixar
-            # o token exposto na barra de endereço após o uso.
-            st.query_params.clear()
-        except Exception as e:
-            st.error(f"⚠️ Não foi possível validar o link de recuperação. Ele pode ter expirado ou já ter sido usado. Solicite um novo link. (Detalhe: {e})")
 
 # ==========================================
 # FUNÇÃO DE VALIDAÇÃO DE CONFLITO (PRÉ-CHECAGEM)
@@ -247,7 +181,7 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
         cols_header[idx].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 13px; color: gray; margin-bottom: 5px;'>{d}</div>", unsafe_allow_html=True)
         
     cal = calendar.monthcalendar(ano, mes)
-    hoje_data = agora_local().date()
+    hoje_data = date.today()
     data_selecionada = st.session_state.get("data_reserva", hoje_data)
     
     for semana in cal:
@@ -292,39 +226,10 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
                         args=(data_celula,)
                     )
 
-processar_query_params_recovery()
-
-# ==========================================
-# TELA DEDICADA: DEFINIR NOVA SENHA (link de recovery)
-# ==========================================
-if st.session_state.recovery_session:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title("🔒 Definir Nova Senha")
-        st.write("Você chegou aqui através do link de recuperação de senha. Escolha uma nova senha para sua conta.")
-
-        with st.form("form_definir_nova_senha"):
-            nova_senha_recovery = st.text_input("Nova Senha", type="password")
-            conf_senha_recovery = st.text_input("Confirme a Nova Senha", type="password")
-            confirmar_clicado = st.form_submit_button("Salvar Nova Senha", use_container_width=True, type="primary")
-
-        if confirmar_clicado:
-            if not nova_senha_recovery or len(nova_senha_recovery) < 6:
-                st.warning("⚠️ A senha deve ter pelo menos 6 caracteres.")
-            elif nova_senha_recovery != conf_senha_recovery:
-                st.error("⚠️ As senhas digitadas não coincidem!")
-            else:
-                atualizar_senha(nova_senha_recovery)
-                st.session_state.recovery_session = None
-                st.info("Agora você já pode fazer login normalmente com a nova senha.")
-                if st.button("Ir para o login", use_container_width=True):
-                    st.rerun()
-
 # ==========================================
 # INTERFACE DE LOGIN / CADASTRO / RESGATE
 # ==========================================
-elif not st.session_state.user:
+if not st.session_state.user:
     st.markdown("<br><br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -334,31 +239,25 @@ elif not st.session_state.user:
         tab1, tab2, tab3 = st.tabs(["🔑 Entrar", "📝 Cadastrar", "❓ Esqueci a Senha"])
         
         with tab1:
-            with st.form("form_login"):
-                email = st.text_input("E-mail", key="login_email")
-                password = st.text_input("Senha", type="password", key="login_pass")
-                entrar_clicado = st.form_submit_button("Entrar", use_container_width=True, type="primary")
-
-            if entrar_clicado:
+            email = st.text_input("E-mail", key="login_email")
+            password = st.text_input("Senha", type="password", key="login_pass")
+            if st.button("Entrar", use_container_width=True, type="primary"):
                 if not email.strip() or not password.strip():
                     st.warning("⚠️ Preencha o e-mail e a senha.")
                 else:
                     login(email.strip(), password)
                 
         with tab2:
-            with st.form("form_cadastro"):
-                col_nome, col_sobre = st.columns(2)
-                with col_nome:
-                    new_nome = st.text_input("Nome", key="signup_nome")
-                with col_sobre:
-                    new_sobrenome = st.text_input("Sobrenome", key="signup_sobrenome")
-
-                new_email = st.text_input("E-mail", key="signup_email")
-                new_password = st.text_input("Senha", type="password", key="signup_pass")
-
-                cadastrar_clicado = st.form_submit_button("Cadastrar", use_container_width=True)
-
-            if cadastrar_clicado:
+            col_nome, col_sobre = st.columns(2)
+            with col_nome:
+                new_nome = st.text_input("Nome", key="signup_nome")
+            with col_sobre:
+                new_sobrenome = st.text_input("Sobrenome", key="signup_sobrenome")
+                
+            new_email = st.text_input("E-mail", key="signup_email")
+            new_password = st.text_input("Senha", type="password", key="signup_pass")
+            
+            if st.button("Cadastrar", use_container_width=True):
                 if not new_nome.strip() or not new_sobrenome.strip():
                     st.warning("⚠️ Por favor, preencha seu nome e sobrenome.")
                 elif not new_email.strip() or not new_password.strip():
@@ -371,11 +270,8 @@ elif not st.session_state.user:
         with tab3:
             st.markdown("### Resgatar Acesso")
             st.write("Digite o e-mail cadastrado. Enviaremos um link de autenticação seguro para você poder entrar e escolher uma nova senha.")
-            with st.form("form_recuperacao"):
-                rec_email = st.text_input("E-mail da sua conta", key="rec_email")
-                enviar_clicado = st.form_submit_button("Enviar link de resgate", use_container_width=True)
-
-            if enviar_clicado:
+            rec_email = st.text_input("E-mail da sua conta", key="rec_email")
+            if st.button("Enviar link de resgate", use_container_width=True):
                 if not rec_email.strip():
                     st.warning("⚠️ Digite um e-mail válido para receber o link.")
                 else:
@@ -432,16 +328,8 @@ else:
     # ------------------------------------------
     # BUSCA OTIMIZADA DE DADOS NO BANCO
     # ------------------------------------------
-    # Quando o filtro é "Todos (Incluindo Passados)", buscamos o histórico
-    # completo. Nos demais casos, mantemos a otimização de só trazer eventos
-    # dos últimos 60 dias pra cá (mais que suficiente para "hoje", "7 dias"
-    # e "futuros").
-    query_eventos = supabase.table("agendamentos").select("*")
-    if filtro_periodo != "Todos (Incluindo Passados)":
-        data_limite_query = (hoje - timedelta(days=60)).isoformat()
-        query_eventos = query_eventos.gte("data_fim", data_limite_query)
-
-    res = query_eventos.order("data_inicio").execute()
+    data_limite_query = (date.today() - timedelta(days=60)).isoformat()
+    res = supabase.table("agendamentos").select("*").gte("data_fim", data_limite_query).order("data_inicio").execute()
     todos_eventos = res.data if res.data else []
     
     # ------------------------------------------
@@ -505,7 +393,7 @@ else:
                 submit = st.form_submit_button("Aguardar e Reservar Auditório", use_container_width=True, type="primary")
                 
                 if submit:
-                    agora = agora_local()
+                    agora = datetime.now()
                     
                     if not titulo.strip():
                         st.warning("Por favor, informe o título do evento.")
@@ -596,7 +484,6 @@ else:
             continue
         elif filtro_periodo == "A partir de Hoje (Futuros)" and dt_ini.date() < hoje:
             continue
-        # "Todos (Incluindo Passados)" não aplica filtro adicional de data aqui
             
         eventos_filtrados.append(ev)
     
@@ -669,7 +556,7 @@ else:
                                     submit_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
                                 
                                 if submit_edit:
-                                    agora = agora_local()
+                                    agora = datetime.now()
                                     
                                     if not new_title.strip():
                                         st.warning("O título não pode ficar em branco.")
