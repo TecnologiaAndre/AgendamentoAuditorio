@@ -12,19 +12,29 @@ st.set_page_config(
 )
 
 # =====================================================================
-# CSS PARA OCULTAR CABEÇALHO, RODAPÉ E BOTÃO DE FULLSCREEN (IFRAME)
+# CSS BLINDADO PARA OCULTAR CABEÇALHO, RODAPÉ E BARRA DO STREAMLIT CLOUD
 # =====================================================================
 st.markdown("""
     <style>
-    /* Oculta o rodapé 'Built with Streamlit' e barras inferiores */
-    footer {visibility: hidden !important;}
+    /* Oculta o cabeçalho padrão, o menu hambúrguer e a marca d'água superior */
+    #MainMenu {visibility: hidden !important; display: none !important;}
+    header {visibility: hidden !important; display: none !important;}
+    header[data-testid="stHeader"] {visibility: hidden !important; display: none !important;}
     
-    /* Oculta o cabeçalho padrão do Streamlit */
-    header {visibility: hidden !important;}
+    /* Oculta o rodapé 'Made with Streamlit' */
+    footer {visibility: hidden !important; display: none !important;}
+    footer[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
     
-    /* Remove a barra flutuante de iFrame/Fullscreen no Streamlit Cloud */
+    /* Oculta os botões e barras de status flutuantes do Streamlit Cloud (Fullscreen / Running) */
+    div[data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
+    .stApp > header {display: none !important;}
     .stApp > footer {display: none !important;}
-    div[data-testid="stStatusWidget"] {visibility: hidden !important;}
+    
+    /* Ajusta a margem do topo para compensar a remoção do cabeçalho */
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
