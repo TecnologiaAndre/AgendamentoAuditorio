@@ -124,13 +124,6 @@ def signup(email, password, nome, sobrenome):
         else:
             st.error(f"Erro no cadastro: {err_msg}")
 
-def recuperar_senha(email):
-    try:
-        supabase.auth.reset_password_email(email)
-        st.success("📩 E-mail de recuperação enviado! Verifique sua caixa de entrada e a pasta de Spam/Lixo Eletrônico.")
-    except Exception as e:
-        st.error(f"Erro ao enviar resgate: {e}")
-
 def atualizar_senha(nova_senha):
     try:
         supabase.auth.update_user({"password": nova_senha})
@@ -228,7 +221,7 @@ def desenhar_calendario_nativo(ano, mes, todos_eventos):
                     )
 
 # ==========================================
-# INTERFACE DE LOGIN / CADASTRO / RESGATE
+# INTERFACE DE LOGIN / CADASTRO
 # ==========================================
 if not st.session_state.user:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -237,7 +230,7 @@ if not st.session_state.user:
         st.title("📅 Agendamento do Auditório")
         st.write("Faça login para gerenciar e reservar horários.")
         
-        tab1, tab2, tab3 = st.tabs(["🔑 Entrar", "📝 Cadastrar", "❓ Esqueci a Senha"])
+        tab1, tab2 = st.tabs(["🔑 Entrar", "📝 Cadastrar"])
         
         with tab1:
             email = st.text_input("E-mail", key="login_email")
@@ -267,16 +260,6 @@ if not st.session_state.user:
                     st.warning("⚠️ A senha deve ter pelo menos 6 caracteres.")
                 else:
                     signup(new_email.strip(), new_password, new_nome.strip(), new_sobrenome.strip())
-                    
-        with tab3:
-            st.markdown("### Resgatar Acesso")
-            st.write("Digite o e-mail cadastrado. Enviaremos um link de autenticação seguro para você poder entrar e escolher uma nova senha.")
-            rec_email = st.text_input("E-mail da sua conta", key="rec_email")
-            if st.button("Enviar link de resgate", use_container_width=True):
-                if not rec_email.strip():
-                    st.warning("⚠️ Digite um e-mail válido para receber o link.")
-                else:
-                    recuperar_senha(rec_email.strip())
 
 # ==========================================
 # ÁREA LOGADA - SISTEMA DE AGENDAMENTO
@@ -394,7 +377,7 @@ else:
                 submit = st.form_submit_button("Aguardar e Reservar Auditório", use_container_width=True, type="primary")
                 
                 if submit:
-                    agora = datetime.now()
+                    agora = agora_local()
                     
                     if not titulo.strip():
                         st.warning("Por favor, informe o título do evento.")
@@ -557,7 +540,7 @@ else:
                                     submit_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
                                 
                                 if submit_edit:
-                                    agora = datetime.now()
+                                    agora = agora_local()
                                     
                                     if not new_title.strip():
                                         st.warning("O título não pode ficar em branco.")
